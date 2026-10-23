@@ -1,0 +1,2377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TW3 tune</title>
+<style>
+:root { --bg:#14161a; --panel:#1d2127; }
+body { margin:0; font:13px/1.4 Consolas, "Cascadia Mono", monospace;
+       background:#14161a; color:#d6d8dc; }
+header { display:flex; gap:8px; align-items:center; padding:8px 12px;
+         background:#1b1e24; border-bottom:1px solid #2a2e36; flex-wrap:wrap; }
+button { background:#2a2e36; color:#d6d8dc; border:1px solid #3a3f4a;
+         border-radius:4px; padding:4px 10px; font:inherit; cursor:pointer; }
+button:hover { background:#343945; }
+button.primary { background:#2c4f7c; border-color:#3a6ba5; }
+#status { margin-left:auto; color:#8a8f99; }
+/* battery state of charge, fed by every LAPREP's vbat (LapReport.h) */
+#batt { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:#8a8f99; }
+#batt .bar { width:56px; height:12px; border:1px solid #666; border-radius:3px; padding:1px; position:relative; }
+#batt .bar::after { content:""; position:absolute; right:-4px; top:3px; width:3px; height:6px; background:#666; border-radius:0 2px 2px 0; }
+#batt .fill { height:100%; border-radius:2px; background:#3f9f3f; }
+#batt.warn .fill { background:#d9a520; }
+#batt.low .fill { background:#c83c3c; }
+#batt.low { color:#e06060; font-weight:bold; }
+main { display:grid; grid-template-columns: 300px 1fr; gap:0; height:calc(100vh - 46px); }
+#left { border-right:1px solid #2a2e36; overflow-y:auto; padding:8px; }
+#right { display:grid; grid-template-rows: auto 1fr auto; overflow:hidden; }
+#mazebar { display:flex; gap:8px; align-items:center; padding:6px 12px;
+           border-bottom:1px solid #2a2e36; }
+#mazewrap { display:flex; overflow:auto; }
+#mazewrap svg { flex:0 0 auto; margin:8px; }
+#buildlist { font-size:12px; color:#9aa0aa; padding:0 12px 8px; white-space:pre; }
+#logwrap { border-top:1px solid #2a2e36; display:grid;
+           grid-template-rows: 1fr auto; min-height:180px; height:260px; }
+#log { overflow-y:auto; padding:6px 12px; white-space:pre-wrap; font-size:12px; }
+#log .tx { color:#7fb3ff; }
+#log .clamp { color:#ffb46e; }
+#cmdrow { display:flex; gap:6px; padding:6px 12px; border-top:1px solid #2a2e36; }
+#cmd { flex:1; background:#101216; color:#d6d8dc; border:1px solid #3a3f4a;
+       border-radius:4px; padding:4px 8px; font:inherit; }
+table.params { border-collapse:collapse; width:100%; }
+table.params th { text-align:left; color:#8a8f99; font-weight:normal;
+                  padding:2px 4px; border-bottom:1px solid #2a2e36; }
+table.params td { padding:2px 4px; }
+table.params input { width:82px; background:#101216; color:#e8eaee;
+       border:1px solid #3a3f4a; border-radius:3px; padding:2px 4px; font:inherit; }
+table.params input.dirty { border-color:#c9a227; }
+td.range { color:#6b7280; font-size:11px; }
+h3 { margin:6px 0 6px; font-size:12px; color:#8a8f99; text-transform:uppercase;
+     letter-spacing:0.08em; }
+select { background:#101216; color:#d6d8dc; border:1px solid #3a3f4a;
+         border-radius:4px; padding:3px 6px; font:inherit; }
+.legend { display:flex; gap:14px; font-size:12px; color:#9aa0aa; margin-left:auto; }
+td.pname { cursor:help; text-decoration:underline dotted #4b5563;
+           text-underline-offset:3px; }
+#viewseg, #metricseg { display:inline-flex; border:1px solid #3a3f4a;
+  border-radius:4px; overflow:hidden; margin-left:8px; vertical-align:middle; }
+.viewbtn, .metbtn { border:0; border-radius:0; margin:0; font-size:11px;
+  padding:2px 8px; }
+.viewbtn.on, .metbtn.on { background:#2b4a6b; color:#d9e8f7; }
+#scoregraphs { display:flex; flex-wrap:wrap; gap:6px; align-items:flex-start; }
+#scoregraphs .dirhead { flex-basis:100%; color:#8a8f99; font-size:11px;
+  text-transform:uppercase; letter-spacing:0.08em; margin:4px 0 0; }
+#lapstrip { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:4px; }
+/* maze creator: click inner walls to toggle, click a cell for the goal */
+#mzedit { border-bottom:1px solid #2a2e36; padding:8px 12px; background:#171a1f; }
+#mzedit h3 { display:flex; gap:10px; align-items:center; }
+#mzedit h3 .cmds { margin-left:auto; display:flex; gap:4px; text-transform:none; letter-spacing:0; align-items:center; }
+#mzedit h3 .cmds button { font-size:11px; padding:2px 8px; }
+#mzedit h3 .cmds input { width:120px; background:#101216; color:#e8eaee; border:1px solid #3a3f4a; border-radius:3px; padding:2px 4px; font:inherit; font-size:11px; }
+#mzedit .row { display:flex; gap:14px; align-items:flex-start; }
+#mzedit .steps { font-size:12px; color:#b0b5bf; max-width:360px; }
+#mzedit .steps code { color:#7fb3ff; }
+#mzedit svg { background:#101216; border:1px solid #2a2e36; border-radius:4px; }
+#mzedit .wseg { cursor:pointer; }
+#mzedit .wseg.on { fill:#e06c75; }
+#mzedit .wseg.off { fill:#2a2e36; }
+#mzedit .wseg:hover { fill:#ffb46e; }
+#mzedit .cell { cursor:pointer; fill:transparent; }
+#mzedit .cell:hover { fill:#7fb3ff; fill-opacity:0.18; }
+/* corner-type table: maze-independent identity, flown vs unflown */
+#ctypewrap { padding:6px 12px 10px; border-top:1px solid #2a2e36; }
+#ctypewrap h3 .cmds { margin-left:auto; display:flex; gap:4px; text-transform:none; letter-spacing:0; }
+#ctypewrap h3 .cmds button { font-size:11px; padding:2px 8px; }
+#ctypewrap h3 { display:flex; gap:10px; align-items:center; }
+table.ctypes { border-collapse:collapse; font-size:12px; }
+table.ctypes th { text-align:right; color:#8a8f99; font-weight:normal; padding:2px 8px; border-bottom:1px solid #2a2e36; white-space:nowrap; }
+table.ctypes th:first-child, table.ctypes td:first-child { text-align:left; }
+table.ctypes td { padding:2px 8px; text-align:right; white-space:nowrap; }
+table.ctypes tr.settled td.st { color:#7ed67e; }
+table.ctypes tr.flown td.st { color:#ffb46e; }
+table.ctypes tr.unflown td { color:#6b7280; }
+table.ctypes tr.nocomp td { color:#4b5563; font-style:italic; }
+table.ctypes td.seen { color:#8a8f99; font-size:11px; text-align:left; max-width:260px; white-space:normal; }
+#paramhelp { margin-top:10px; font-size:12px; color:#9aa0aa; }
+#paramhelp summary { cursor:pointer; color:#8a8f99; font-size:12px;
+                     text-transform:uppercase; letter-spacing:0.08em; }
+#paramhelp dl { margin:8px 0 0; }
+#paramhelp dt { color:#d6d8dc; font-weight:bold; margin-top:7px;
+                font-family:inherit; }
+#paramhelp dd { margin:1px 0 0 0; line-height:1.45; }
+#dirseg { display:inline-flex; border:1px solid #3a3f4a; border-radius:4px;
+          overflow:hidden; }
+#dirseg .dirbtn { border:0; border-radius:0; margin:0; }
+#dirseg .dirbtn.on { background:#2d5a2d; color:#d6f0d6; }
+/* wall-sensor test panel (Bench 'wcal'): the setups drawn to scale */
+#wcalpanel { border-bottom:1px solid #2a2e36; padding:8px 12px; background:#171a1f; }
+#wcalpanel h3 { display:flex; gap:10px; align-items:center; }
+#wcalpanel h3 .cmds { margin-left:auto; display:flex; gap:4px; text-transform:none; letter-spacing:0; }
+#wcalpanel h3 .cmds button { font-size:11px; padding:2px 8px; }
+#wcalpanel .row { display:flex; gap:14px; align-items:flex-start; overflow-x:auto; margin-bottom:10px; }
+#wcalpanel .steps { min-width:300px; max-width:330px; font-size:12px; color:#b0b5bf; }
+#wcalpanel .steps b { color:#e8eaee; }
+#wcalpanel .steps code { color:#7fb3ff; }
+#wcalpanel .steps ol { margin:4px 0 6px 18px; padding:0; }
+#wcalpanel .steps li { margin:3px 0; }
+#wcalpanel .steps p { margin:5px 0; }
+#wcalpanel svg { flex:0 0 auto; background:#101216; border:1px solid #2a2e36; border-radius:4px; }
+#wcalpanel svg text { font:10px Consolas, "Cascadia Mono", monospace; fill:#c0c5cf; }
+#wcalpanel svg text.t { fill:#e8eaee; font-weight:bold; }
+#wcalpanel svg text.dim { fill:#8a8f99; }
+#wcalpanel svg text.beam { fill:#ff6b6b; }
+#wcalpanel svg text.mv { fill:#ffb46e; }
+.legend span::before { content:"\25CF "; }
+.lg-u::before  { color:#e06c75; } .lg-r::before { color:#61afef; }
+.lg-d::before  { color:#c678dd; }
+</style>
+</head>
+<body>
+<header>
+  <button id="btnConnect" class="primary">Connect (Web Serial)</button>
+  <button onclick="send('param.dump')">Refresh params</button>
+  <button onclick="send('param.diff')">Diff</button>
+  <button onclick="send('w')">Save to FRAM</button>
+  <button id="btnFramBackup" title="Read the mouse's stored variables (params, goal, sensor LUTs, searched map, goff table -- the 2 KB small-block window) into a .fram.json file. The flight log and lap report are not included: fetch them with their own buttons first.">FRAM backup</button>
+  <button id="btnFramRestore" title="Write a .fram.json backup into the mouse's FRAM (staged, CRC-checked, read back). For a chip swap: backup on the old chip, fit the new one, flash the FRAM_MBIT=8 build, restore, power cycle.">FRAM restore&hellip;</button>
+  <button onclick="send('M')">Map dump</button>
+  <button id="btnPush">Push rig to mouse</button>
+  <span id="dirseg" title="Which way round the circuit the lap runs. The mouse re-orients itself (or tells you how to place it).">
+    <button id="btnDirN" class="dirbtn on">&#8635; CW &mdash; launch N</button><button id="btnDirE" class="dirbtn">&#8634; CCW &mdash; launch E</button>
+  </span>
+  <button id="btnMirror" title="Left-right mirror of the selected rig: same lap, every hand flipped. Needs the physical walls rebuilt to the mirrored build list.">Mirror rig</button>
+  <button onclick="send('route.go')" class="primary">Start lap</button>
+  <button onclick="send('route.arm')">Arm (wave to fly)</button>
+  <button onclick="send('route.stop')">Stop</button>
+  <button onclick="send('goffc')" title="List the mouse's learned per-corner gate offsets (the map it keeps in FRAM beside the maze).">Corner table</button>
+  <button onclick="if(confirm('Clear the learned per-corner offset table? It relearns in 2-3 laps. Hand-set trims (goffc.trim) are kept.')) send('goffc.clear')" title="Wipe the learned per-corner offsets; hand-set corner trims survive ('goffc.clear all' in the console drops those too). Do this after moving walls or big geometry changes (rv class); NOT needed after a routine reflash - the table survives, and firmware that changes the gate geometry declares it stale automatically.">Clear corner table</button>
+  <button onclick="const v=prompt('Per-corner arc trim: cx cy n|e|s|w mm\n(+ = arc later = exit further OUTSIDE, same sense as atrim; added to atrim/utrim for that corner only; never learned; survives Clear)\n\ne.g.  0 5 n -30'); if(v) send('goffc.trim '+v.trim())" title="Set one corner's arc trim, mm. The learner drives each corner's corr to zero, which fixes its POST, not its EXIT; atrim moves every 90 together. This moves one arc. D6 2026-09-01: (0,5) began its arc 32 mm later than (5,5) and exited 35 mm outside -- exit tracks arc timing 1:1, so start with about -30 there.">Corner trim…</button>
+  <button onclick="const v=prompt('Lane-change STEP test: mm of corridor set point (+ = left, 0 = off). On the next lap, on the first two-wall straight with 450 mm to its arc, the set point steps by this for 250 mm then back; the lap report gets LSTEP,rise90=,peak=,over=,back90= and an LS,ds,lat,yerr table. Try 10, then 20.', '10'); if(v!==null) send('lstep '+v.trim())" title="Arm the lane-change step test (RouteRun): measures how fast the mouse actually moves sideways for a commanded set-point step -- what DGATE_SERVO_SCALE, the clamp and the feedforward should be. 'lstep 0' turns it off.">Lane step&hellip;</button>
+  <button onclick="wcalToggle()" title="Wall-sensor test (Bench 'wcal'): opens a panel drawing the setups to scale -- the corridor sweep (centred, touch left wall, touch right wall, back; 'wcal s') and the diagonal posts one at a time ('wcal lp/rp' static, 'wcal lps/rps' sweeps) -- with the commands. Stationary; you move the mouse by hand.">Wall sensor test</button>
+  <button id="btnFlog">Fetch flight log</button>
+  <button id="btnFlogView" disabled title="Open the last fetched flight log in flight_viewer.html (same folder) -- lights after a fetch.">View</button>
+  <button id="btnLog">Download log</button>
+  <button id="btnLapRec" title="Pick a file once; every lap report (LAPREP/LC lines, plus the DGATE per-post lines and any GOFFC dump) is then saved to it automatically as laps end.">Record laps&hellip;</button>
+  <span id="batt" title="Battery state of charge from the last lap report's vbat. The value is the mouse's UNCALIBRATED pack reading (VBAT_DIVIDER nominal; 2.20 = a full 2S pack, ~1.80 = the lowest usable) mapped on a LiPo discharge curve. Calibrate with the console 'vbat' command and a meter to get real volts."><span class="bar"><span class="fill" id="battFill" style="width:0%"></span></span><span id="battText">batt --</span></span>
+  <span id="status">not connected &mdash; needs Chrome or Edge (Web Serial)</span>
+</header>
+<main>
+  <div id="left">
+    <h3>Parameter registry <span id="pcount"></span></h3>
+    <table class="params" id="ptable">
+      <tr><th>param</th><th>value</th><th>range</th></tr>
+    </table>
+    <p style="color:#6b7280;font-size:11px">Edit + Enter sends
+    <b>name=value</b> (RAM only, clamped by the mouse). Amber border =
+    edited, not yet sent. The table is built from the mouse's own
+    <b>param.dump</b> reply &mdash; it has no list of its own.
+    Hover a name for what it does.</p>
+    <details id="paramhelp">
+      <summary>What the parameters do</summary>
+      <dl id="helplist"></dl>
+    </details>
+  </div>
+  <div id="right">
+    <div id="mazebar">
+      <label>Rig:</label>
+      <select id="rigsel"></select>
+      <span id="rigstats" style="color:#8a8f99"></span>
+      <button id="btnMzEdit" title="Maze creator: click inner walls to add or remove them, click a cell to set the goal, name it and save -- it joins the rig list (kept in this browser) and can be pushed to the mouse like any rig, or downloaded as JSON.">Maze creator</button>
+        <div class="legend"><span class="lg-u">U-turn</span>
+        <span class="lg-r">90 (R84 / R73)</span><span class="lg-d">45 / diagonal</span></div>
+    </div>
+    <div style="overflow:auto">
+      <div id="mzedit" hidden>
+        <h3>Maze creator
+          <span class="cmds">
+            <input id="mzName" placeholder="rig name" value="D10">
+            <button id="btnMzSave" title="Add this layout to the rig list under the name (kept in this browser; select it, push it, fly it).">Save as rig</button>
+            <button id="btnMzDownload" title="Download the layout as a rig JSON file (walls, goal, derived cells/path/turns).">Download JSON</button>
+            <button id="btnMzLoad" title="Load a rig JSON file into the editor.">Load JSON&hellip;</button>
+            <button id="btnMzFrom" title="Load the rig selected in the Rig dropdown into the editor.">Edit selected rig</button>
+            <button id="btnMzAllWalls" title="Every inner wall on (then remove walls to cut corridors).">All walls</button>
+            <button id="btnMzClear" title="Every inner wall off (an open field; then add walls).">No walls</button>
+            <button onclick="document.getElementById('mzedit').hidden=true">close</button>
+          </span></h3>
+        <div class="row">
+          <div id="mzsvg"></div>
+          <div class="steps">
+            <p><b>Click a wall segment</b> to add or remove it (red = wall). The boundary ring is
+            fixed. <b>Click a cell</b> to set the goal (green). Start is (0,0), launch north.</p>
+            <p>Below the grid the editor derives what the rig list needs: the corridor cells
+            reachable from the start, the loop START &rarr; GOAL &rarr; START (shortest out,
+            shortest back that avoids the out leg where it can), the turn events with their
+            hands, and any alcove (reachable but off the loop). Turns in adjacent cells are
+            grouped the way the compiler groups them: alternating hands = a diagonal (45-in,
+            45-out, dashed centre line), a same-hand pair with a staircase step on both sides
+            = a V, with a staircase on one side only = a 135 (one arc from the diagonal into
+            the corridor, or the reverse; the mouse's r135 switch turns it off), any other
+            same-hand pair = a U. Then the compiler's own fit runs on it, pass
+            by pass as the mouse does at the start line: radius ladder, then the speed rung,
+            then un-merging the one feature that will not fit and compiling again. Amber ring =
+            a hairpin or staircase un-merged into its 90s, or a demoted radius; blue = a corner
+            speed-capped (the cap is written under it); red = refused, which should no longer
+            happen on any valid maze.</p>
+            <p id="mzinfo" style="color:#8a8f99"></p>
+            <p id="mzcheck" style="font-size:11.5px; line-height:1.45"></p>
+            <p style="color:#6b7280">Saved rigs live in this browser (localStorage) and appear in
+            the Rig dropdown with a &ldquo;&#9998;&rdquo;; Download JSON to keep one, Load JSON to bring it back.</p>
+          </div>
+        </div>
+      </div>
+      <div id="wcalpanel" hidden>
+        <h3>Wall sensor test &mdash; how to do it
+          <span class="cmds">
+            <button onclick="send('wcal w')" title="Beams on, a line per 250 ms, to place the mouse">wcal w</button>
+            <button onclick="send('wcal s')" title="Start the corridor sweep: up to 30 s of CSV, stops on 'wcal'">wcal s</button>
+            <button onclick="send('wcal')" title="Stop a running sweep. The beams stay on (watch) afterwards; only 'beams off' turns them off">wcal (stop)</button>
+            <button onclick="send('wcal lp')" title="2 s static, centred on the line, LEFT post at the beam">wcal lp</button>
+            <button onclick="send('wcal lps')" title="Sweep with the LEFT post: 20 mm toward it, back, 20 mm away, back">wcal lps</button>
+            <button onclick="send('wcal rp')" title="2 s static, centred, RIGHT post at the beam">wcal rp</button>
+            <button onclick="send('wcal rps')" title="Sweep with the RIGHT post">wcal rps</button>
+            <button onclick="send('wcal fit')" title="Fit the static captures (c/l/r, lp/rp) against the truth">wcal fit</button>
+            <button onclick="send('wcal x')" title="Forget the captures">wcal x</button>
+            <button onclick="send('wcal off')" title="Turn the beams off (ends the watch)">beams off</button>
+            <button onclick="wcalToggle()">close</button>
+          </span></h3>
+        <div class="row" id="wcalrow1"></div>
+        <div class="row" id="wcalrow2"></div>
+      </div>
+      <div id="mazewrap"></div>
+      <div id="scorewrap">
+        <h3>Corner scoreboard <span id="scoremeta"></span>
+          <span id="viewseg"><button id="btnVGraphs" class="viewbtn on">Graphs</button><button id="btnVTable" class="viewbtn">Table</button></span>
+          <span id="metricseg">
+            <button class="metbtn on" data-m="err">sweep err</button><button class="metbtn" data-m="maxye">max|ye|</button><button class="metbtn" data-m="apex">apex</button><button class="metbtn" data-m="corr">gate corr</button>
+          </span>
+          <a href="#" id="scoreclear" style="color:#6b7280">clear</a></h3>
+        <div id="lapstrip"></div>
+        <div id="scoregraphs"></div>
+        <table class="params" id="scoretable" hidden></table>
+        <p style="color:#6b7280;font-size:11px">Fed by the mouse's own lap
+        report (LAPREP/LC lines, printed at each lap end and stored in FRAM
+        &mdash; <b>lr</b> reprints). &#10003; at n&ge;5, |mean err|&le;0.5&deg;,
+        &sigma;&le;0.5&deg;. Stats live in this page only &mdash; the raw lines
+        are in every session log.</p>
+      </div>
+      <div id="ctypewrap">
+        <h3>Corner types <span id="ctypemeta"></span>
+          <span class="cmds">
+            <button id="btnCtExport" title="Save the corner-type table as corner_types.json (every flown corner's stats, keyed by type -- kind, hand, radius, gate class -- not by cell or maze).">Export config</button>
+            <button id="btnCtImport" title="Load corner_types.json (merged, duplicates dropped) or one or more laps_*.txt files from earlier sessions to fold their corners in.">Import&hellip;</button>
+            <button id="btnCtClear" title="Forget the corner-type table (this browser only; export first if you want it).">clear</button>
+          </span></h3>
+        <div style="overflow-x:auto"><table class="ctypes" id="ctypetable"></table></div>
+        <p style="color:#6b7280;font-size:11px">A TYPE is what the mouse can recognise on a maze it has
+        never seen: kind (90 / U / 45-in / 45-out / V), hand, radius, and the gate class it got
+        (LOCK = its own inside edge, INHERIT = the previous corner's correction, NO_EDGE = blind,
+        DIAG = placed by the diagonal's posts). Exit "wide" is + toward the OUTSIDE of the turn,
+        whichever wall that is. Settled = n &ge; 5, |mean err| &le; 1&deg;, &sigma; &le; 1&deg;,
+        |mean wide| &le; 12 mm. Kept in this browser between sessions; export to carry it.</p>
+      </div>
+      <div id="buildlist"></div>
+    </div>
+    <div id="logwrap">
+      <div id="log"></div>
+      <div id="cmdrow">
+        <span style="color:#8a8f99">cmd:</span>
+        <input id="cmd" placeholder="p, M, y, route.arm, kyaw=10 ..."
+               autocomplete="off">
+      </div>
+    </div>
+  </div>
+</main>
+<script>
+"use strict";
+const RIGS = {"CAL-6 rev A": {"cells": [[0, 0], [0, 1], [0, 2], [0, 3], [0, 4], [0, 5], [1, 0], [1, 3], [1, 4], [1, 5], [2, 0], [2, 3], [2, 4], [2, 5], [3, 0], [3, 2], [3, 3], [3, 5], [4, 0], [4, 2], [4, 3], [4, 5], [5, 0], [5, 1], [5, 2], [5, 3], [5, 4], [5, 5]], "open_extra": [], "walls": [[0, 0, 0, 1], [0, 1, 0, 2], [0, 2, 0, 3], [0, 3, 0, 4], [0, 4, 0, 5], [0, 5, 0, 6], [1, 1, 1, 2], [1, 2, 1, 3], [1, 3, 1, 4], [1, 4, 1, 5], [2, 4, 2, 5], [2, 5, 2, 6], [3, 2, 3, 3], [3, 3, 3, 4], [3, 4, 3, 5], [5, 1, 5, 2], [5, 4, 5, 5], [6, 0, 6, 1], [6, 1, 6, 2], [6, 2, 6, 3], [6, 3, 6, 4], [6, 4, 6, 5], [6, 5, 6, 6], [0, 0, 1, 0], [1, 0, 2, 0], [2, 0, 3, 0], [3, 0, 4, 0], [4, 0, 5, 0], [5, 0, 6, 0], [1, 1, 2, 1], [2, 1, 3, 1], [3, 1, 4, 1], [4, 1, 5, 1], [3, 2, 4, 2], [4, 2, 5, 2], [1, 3, 2, 3], [2, 3, 3, 3], [4, 3, 5, 3], [5, 3, 6, 3], [3, 4, 4, 4], [4, 4, 5, 4], [3, 5, 4, 5], [4, 5, 5, 5], [0, 6, 1, 6], [1, 6, 2, 6], [2, 6, 3, 6], [3, 6, 4, 6], [4, 6, 5, 6], [5, 6, 6, 6]], "path": [[0, 0], [0, 1], [0, 2], [0, 3], [0, 4], [0, 5], [1, 5], [1, 4], [1, 3], [2, 3], [2, 4], [2, 5], [3, 5], [4, 5], [5, 5], [5, 4], [5, 3], [4, 3], [3, 3], [3, 2], [4, 2], [5, 2], [5, 1], [5, 0], [4, 0], [3, 0], [2, 0], [1, 0], [0, 0]], "turns": [{"x": 0, "y": 0, "t": "R"}, {"x": 0, "y": 5, "t": "UR"}, {"x": 1, "y": 3, "t": "UL"}, {"x": 2, "y": 5, "t": "R"}, {"x": 5, "y": 5, "t": "R"}, {"x": 5, "y": 3, "t": "R"}, {"x": 3, "y": 3, "t": "UL"}, {"x": 5, "y": 2, "t": "R"}, {"x": 5, "y": 0, "t": "R"}]}, "CAL-6 rev C": {"cells": [[0, 0], [0, 1], [0, 2], [0, 3], [0, 4], [0, 5], [1, 0], [1, 3], [1, 4], [1, 5], [2, 0], [2, 3], [2, 4], [3, 0], [3, 2], [3, 3], [3, 4], [4, 0], [4, 2], [4, 3], [4, 4], [5, 0], [5, 1], [5, 2], [5, 3], [5, 4]], "open_extra": [[2, 5]], "walls": [[0, 0, 0, 1], [0, 1, 0, 2], [0, 2, 0, 3], [0, 3, 0, 4], [0, 4, 0, 5], [0, 5, 0, 6], [1, 1, 1, 2], [1, 2, 1, 3], [1, 3, 1, 4], [1, 4, 1, 5], [2, 4, 2, 5], [2, 5, 2, 6], [3, 2, 3, 3], [3, 3, 3, 4], [3, 5, 3, 6], [5, 1, 5, 2], [6, 0, 6, 1], [6, 1, 6, 2], [6, 2, 6, 3], [6, 3, 6, 4], [6, 4, 6, 5], [6, 5, 6, 6], [0, 0, 1, 0], [1, 0, 2, 0], [2, 0, 3, 0], [3, 0, 4, 0], [4, 0, 5, 0], [5, 0, 6, 0], [1, 1, 2, 1], [2, 1, 3, 1], [3, 1, 4, 1], [4, 1, 5, 1], [3, 2, 4, 2], [4, 2, 5, 2], [1, 3, 2, 3], [2, 3, 3, 3], [4, 3, 5, 3], [5, 3, 6, 3], [3, 4, 4, 4], [4, 4, 5, 4], [3, 5, 4, 5], [4, 5, 5, 5], [5, 5, 6, 5], [0, 6, 1, 6], [1, 6, 2, 6], [2, 6, 3, 6], [3, 6, 4, 6], [4, 6, 5, 6], [5, 6, 6, 6]], "path": [[0, 0], [0, 1], [0, 2], [0, 3], [0, 4], [0, 5], [1, 5], [1, 4], [1, 3], [2, 3], [2, 4], [3, 4], [4, 4], [5, 4], [5, 3], [4, 3], [3, 3], [3, 2], [4, 2], [5, 2], [5, 1], [5, 0], [4, 0], [3, 0], [2, 0], [1, 0], [0, 0]], "turns": [{"x": 0, "y": 0, "t": "R"}, {"x": 0, "y": 5, "t": "UR"}, {"x": 1, "y": 3, "t": "UL"}, {"x": 2, "y": 4, "t": "R73"}, {"x": 5, "y": 4, "t": "UR"}, {"x": 3, "y": 3, "t": "UL"}, {"x": 5, "y": 2, "t": "R"}, {"x": 5, "y": 0, "t": "R"}]}, "D6 diagonal": {"cells": [[0, 0], [0, 1], [0, 2], [0, 3], [0, 4], [0, 5], [1, 0], [1, 5], [2, 0], [2, 1], [2, 5], [3, 1], [3, 2], [3, 5], [4, 2], [4, 3], [4, 5], [5, 3], [5, 4], [5, 5]], "open_extra": [], "walls": [[0, 0, 0, 1], [0, 1, 0, 2], [0, 2, 0, 3], [0, 3, 0, 4], [0, 4, 0, 5], [0, 5, 0, 6], [1, 1, 1, 2], [1, 2, 1, 3], [1, 3, 1, 4], [1, 4, 1, 5], [2, 1, 2, 2], [3, 0, 3, 1], [3, 2, 3, 3], [4, 1, 4, 2], [4, 3, 4, 4], [5, 2, 5, 3], [5, 4, 5, 5], [6, 0, 6, 1], [6, 1, 6, 2], [6, 2, 6, 3], [6, 3, 6, 4], [6, 4, 6, 5], [6, 5, 6, 6], [0, 0, 1, 0], [1, 0, 2, 0], [2, 0, 3, 0], [3, 0, 4, 0], [4, 0, 5, 0], [5, 0, 6, 0], [1, 1, 2, 1], [3, 1, 4, 1], [2, 2, 3, 2], [4, 2, 5, 2], [3, 3, 4, 3], [5, 3, 6, 3], [4, 4, 5, 4], [1, 5, 2, 5], [2, 5, 3, 5], [3, 5, 4, 5], [4, 5, 5, 5], [0, 6, 1, 6], [1, 6, 2, 6], [2, 6, 3, 6], [3, 6, 4, 6], [4, 6, 5, 6], [5, 6, 6, 6]], "path": [[0, 5], [0, 0], [2, 0], [5, 3], [5, 5], [1, 5], [0, 5]], "turns": [{"x": 0, "y": 0, "t": "L"}, {"x": 2, "y": 0, "t": "45L"}, {"x": 5, "y": 3, "t": "45L"}, {"x": 5, "y": 5, "t": "L"}, {"x": 0, "y": 5, "t": "L"}], "diagonal": [[2, 0], [5, 3]]}, "D7 mixed": {"cells": [[0, 0], [0, 1], [0, 2], [0, 3], [0, 4], [0, 5], [1, 0], [1, 5], [2, 0], [2, 1], [2, 3], [2, 4], [2, 5], [3, 1], [3, 2], [3, 3], [3, 4], [3, 5], [4, 2], [4, 3], [4, 5], [5, 3], [5, 4], [5, 5]], "open_extra": [], "walls": [[0, 0, 0, 1], [0, 0, 1, 0], [0, 1, 0, 2], [0, 2, 0, 3], [0, 3, 0, 4], [0, 4, 0, 5], [0, 5, 0, 6], [0, 6, 1, 6], [1, 0, 2, 0], [1, 1, 1, 2], [1, 1, 2, 1], [1, 2, 1, 3], [1, 3, 1, 4], [1, 4, 1, 5], [1, 5, 2, 5], [1, 6, 2, 6], [2, 0, 3, 0], [2, 1, 2, 2], [2, 2, 3, 2], [2, 3, 2, 4], [2, 3, 3, 3], [2, 4, 2, 5], [2, 6, 3, 6], [3, 0, 3, 1], [3, 0, 4, 0], [3, 1, 4, 1], [3, 2, 3, 3], [3, 3, 4, 3], [3, 4, 3, 5], [3, 5, 3, 6], [3, 6, 4, 6], [4, 0, 5, 0], [4, 1, 4, 2], [4, 2, 5, 2], [4, 3, 4, 4], [4, 4, 4, 5], [4, 4, 5, 4], [4, 5, 5, 5], [4, 6, 5, 6], [5, 0, 6, 0], [5, 2, 5, 3], [5, 3, 6, 3], [5, 4, 5, 5], [5, 6, 6, 6], [6, 0, 6, 1], [6, 1, 6, 2], [6, 2, 6, 3], [6, 3, 6, 4], [6, 4, 6, 5], [6, 5, 6, 6]], "path": [[0, 5], [0, 0], [2, 0], [5, 3], [5, 5], [3, 5], [3, 3], [2, 3], [2, 5], [1, 5], [0, 5]], "turns": [{"x": 0, "y": 0, "t": "L"}, {"x": 2, "y": 0, "t": "45L"}, {"x": 5, "y": 3, "t": "45L"}, {"x": 5, "y": 5, "t": "L"}, {"x": 3, "y": 5, "t": "L"}, {"x": 3, "y": 3, "t": "UR"}, {"x": 2, "y": 5, "t": "L"}, {"x": 0, "y": 5, "t": "L"}], "diagonal": [[2, 0], [5, 3]]}, "D8 V": {"cells": [[0, 0], [0, 1], [1, 0], [1, 1], [1, 2], [1, 3], [1, 4], [1, 5], [2, 0], [2, 2], [2, 3], [2, 5], [3, 0], [3, 1], [3, 2], [3, 3], [3, 4], [3, 5]], "open_extra": [], "walls": [[0, 0, 0, 1], [0, 1, 0, 2], [0, 2, 0, 3], [0, 3, 0, 4], [0, 4, 0, 5], [0, 5, 0, 6], [1, 2, 1, 3], [1, 3, 1, 4], [1, 4, 1, 5], [1, 5, 1, 6], [2, 1, 2, 2], [2, 4, 2, 5], [3, 1, 3, 2], [3, 2, 3, 3], [3, 3, 3, 4], [3, 4, 3, 5], [4, 0, 4, 1], [4, 1, 4, 2], [4, 2, 4, 3], [4, 3, 4, 4], [4, 4, 4, 5], [4, 5, 4, 6], [5, 0, 5, 1], [5, 1, 5, 2], [5, 2, 5, 3], [5, 3, 5, 4], [5, 4, 5, 5], [5, 5, 5, 6], [6, 0, 6, 1], [6, 1, 6, 2], [6, 2, 6, 3], [6, 3, 6, 4], [6, 4, 6, 5], [6, 5, 6, 6], [0, 0, 1, 0], [1, 0, 2, 0], [2, 0, 3, 0], [3, 0, 4, 0], [4, 0, 5, 0], [5, 0, 6, 0], [1, 1, 2, 1], [2, 1, 3, 1], [4, 1, 5, 1], [5, 1, 6, 1], [0, 2, 1, 2], [2, 2, 3, 2], [4, 2, 5, 2], [5, 2, 6, 2], [0, 3, 1, 3], [1, 3, 2, 3], [4, 3, 5, 3], [5, 3, 6, 3], [0, 4, 1, 4], [2, 4, 3, 4], [4, 4, 5, 4], [5, 4, 6, 4], [0, 5, 1, 5], [2, 5, 3, 5], [4, 5, 5, 5], [5, 5, 6, 5], [0, 6, 1, 6], [1, 6, 2, 6], [2, 6, 3, 6], [3, 6, 4, 6], [4, 6, 5, 6], [5, 6, 6, 6]], "path": [[0, 0], [0, 1], [1, 3], [1, 5], [3, 5], [3, 0], [0, 0]], "turns": [{"x": 0, "y": 1, "t": "45R"}, {"x": 2, "y": 2, "t": "V L"}, {"x": 1, "y": 3, "t": "45R"}, {"x": 1, "y": 5, "t": "R"}, {"x": 3, "y": 5, "t": "R"}, {"x": 3, "y": 0, "t": "R"}], "diagonal": [[0, 1], [1, 3]]}, "D9 zigzag": {"cells": [[0, 0], [0, 1], [0, 2], [0, 3], [1, 0], [1, 1], [1, 2], [1, 3], [1, 4], [1, 5], [2, 0], [2, 5], [3, 0], [3, 5], [4, 0], [4, 1], [4, 2], [4, 4], [4, 5], [5, 2], [5, 3], [5, 4], [5, 5]], "open_extra": [[4, 4]], "walls": [[0, 0, 0, 1], [0, 1, 0, 2], [0, 2, 0, 3], [0, 3, 0, 4], [0, 4, 0, 5], [0, 5, 0, 6], [1, 4, 1, 5], [1, 5, 1, 6], [2, 1, 2, 2], [2, 2, 2, 3], [2, 3, 2, 4], [2, 4, 2, 5], [3, 1, 3, 2], [3, 2, 3, 3], [3, 3, 3, 4], [3, 4, 3, 5], [4, 1, 4, 2], [4, 2, 4, 3], [4, 3, 4, 4], [4, 4, 4, 5], [5, 0, 5, 1], [5, 1, 5, 2], [5, 3, 5, 4], [5, 4, 5, 5], [6, 0, 6, 1], [6, 1, 6, 2], [6, 2, 6, 3], [6, 3, 6, 4], [6, 4, 6, 5], [6, 5, 6, 6], [0, 0, 1, 0], [1, 0, 2, 0], [2, 0, 3, 0], [3, 0, 4, 0], [4, 0, 5, 0], [5, 0, 6, 0], [1, 1, 2, 1], [2, 1, 3, 1], [3, 1, 4, 1], [5, 1, 6, 1], [0, 2, 1, 2], [2, 2, 3, 2], [3, 2, 4, 2], [5, 2, 6, 2], [1, 3, 2, 3], [2, 3, 3, 3], [3, 3, 4, 3], [4, 3, 5, 3], [0, 4, 1, 4], [2, 4, 3, 4], [3, 4, 4, 4], [4, 4, 5, 4], [0, 5, 1, 5], [2, 5, 3, 5], [3, 5, 4, 5], [0, 6, 1, 6], [1, 6, 2, 6], [2, 6, 3, 6], [3, 6, 4, 6], [4, 6, 5, 6], [5, 6, 6, 6]], "path": [[0, 0], [0, 1], [1, 3], [1, 5], [5, 5], [5, 2], [4, 2], [4, 0], [0, 0]], "turns": [{"x": 0, "y": 1, "t": "45R"}, {"x": 1, "y": 1, "t": "V L"}, {"x": 0, "y": 2, "t": "V R"}, {"x": 1, "y": 3, "t": "45L"}, {"x": 1, "y": 5, "t": "R"}, {"x": 5, "y": 5, "t": "R"}, {"x": 5, "y": 2, "t": "45R"}, {"x": 4, "y": 2, "t": "45L"}, {"x": 4, "y": 0, "t": "R"}], "diagonal": [[0, 1], [1, 3]]}};
+
+/* ------------------------------------------------ transport
+   One tiny interface so the SAME page can later be served from the ESP32
+   with a WebSocket transport instead of Web Serial: implement
+   {start(onLine), write(text), label} and assign it to `link`. */
+let link = null;
+window._setLink = (l) => { link = l; };  // test seam
+const serialTransport = {
+  port: null, label: "",
+  async start(onLine) {
+    this.port = await navigator.serial.requestPort();
+    await this.port.open({ baudRate: 115200 });
+    this.label = "serial @115200";
+    (async () => {
+      const dec = new TextDecoder(); let buf = "";
+      while (this.port.readable) {
+        const reader = this.port.readable.getReader();
+        try {
+          for (;;) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buf += dec.decode(value);
+            let i;
+            while ((i = buf.indexOf("\n")) >= 0) {
+              onLine(buf.slice(0, i).replace(/\r$/, ""));
+              buf = buf.slice(i + 1);
+            }
+          }
+        } catch (e) { logline("[read error: " + e + "]"); }
+        finally { reader.releaseLock(); }
+      }
+    })();
+  },
+  async write(text) {
+    const w = this.port.writable.getWriter();
+    await w.write(new TextEncoder().encode(text + "\n"));
+    w.releaseLock();
+  }
+};
+
+/* ------------------------------------------------ console + log */
+const logEl = document.getElementById("log");
+const logbuf = [];
+function logline(s, cls) {
+  const t = new Date().toTimeString().slice(0, 8);
+  const div = document.createElement("div");
+  if (cls) div.className = cls;
+  div.textContent = t + " " + s;
+  logEl.appendChild(div);
+  if (logEl.childNodes.length > 4000) logEl.removeChild(logEl.firstChild);
+  logEl.scrollTop = logEl.scrollHeight;
+  logbuf.push(t + " " + s);
+}
+async function send(text) {
+  if (!link) { logline("[not connected] " + text); return; }
+  try { await link.write(text); logline("> " + text, "tx"); }
+  catch (e) { logline("[tx failed: " + e + "]"); }
+}
+/* ------------------------------------------------ wall-sensor test panel
+   Draws the 'wcal' setups to scale so the placements are unambiguous.
+   Geometry: tools/sensor_cal_config.json laser_geometry (ch0 LEFT beam:
+   emitter 40 mm forward, 15 mm RIGHT of centre, firing left across the
+   nose 17.2 deg forward of square; ch3 RIGHT beam: emitter 15 mm LEFT,
+   firing right at 19 deg -- THE SIDE BEAMS CROSS at the nose; the two
+   front beams 28 mm forward, 9 mm off centre) and Route.h (body 70 x 90).
+   Maze: 168 mm face to face, 12 mm walls/posts. Mouse frame in mm:
+   x = lateral (+ left), y = forward. Readings are calibrated as LATERAL
+   distance from the mouse centre to the target, so a centred corridor
+   mouse reads 84 / 84 and the body on a wall ~35. */
+const WC = {
+  halfW: 35, halfL: 45, face: 84, wall: 12, cell: 180,
+  // dir: which way the beam fires (+1 left, -1 right); x: where its emitter sits
+  side: [{ x: -15, y: 40, deg: 17.2, dir: 1, name: "L" }, { x: 15, y: 40, deg: 19.0, dir: -1, name: "R" }],
+  front: [{ x: 9, y: 28 }, { x: -9, y: 28 }],
+  postOff: 90 / Math.SQRT2,          // 63.6: post centre off the diagonal centreline
+  postPitch: 360 / Math.SQRT2,       // 254.6: one side's posts along the line; the other side's are half-way between
+  postValley: 270 / Math.SQRT2,      // 190.9: the sawtooth valley, at the other side's post station
+  postStep: 20,                      // the tape marks toward / away from the post in the post sweeps
+};
+WC.touch = WC.face - WC.halfW;       // 49: sideways travel from centre to the wall
+WC.postIn = WC.postOff - 6 * Math.SQRT2;   // 55.1: the post's nearest corner off the line
+// where the post's near corner sits ahead of the mouse centre when that beam reads
+// lowest: the beam crosses from the far emitter, so (55.1 + 15) x tan(angle) up
+WC.postAhead = (side) => { const sb = WC.side[side > 0 ? 0 : 1]; return sb.y + (WC.postIn + Math.abs(sb.x)) * Math.tan(sb.deg * Math.PI / 180); };
+
+// ray from (px,py) at angle 'deg' forward of square-left (sign = +1 left, -1 right)
+// against a list of segments [[x1,y1,x2,y2],...]; returns the nearest hit or null
+function wcRayHit(px, py, deg, sign, segs) {
+  const dx = sign * Math.cos(deg * Math.PI / 180), dy = Math.sin(deg * Math.PI / 180);
+  let best = null;
+  for (const s of segs) {
+    const ex = s[2] - s[0], ey = s[3] - s[1];
+    const den = dx * ey - dy * ex;
+    if (Math.abs(den) < 1e-9) continue;
+    const t = ((s[0] - px) * ey - (s[1] - py) * ex) / den;
+    const u = ((s[0] - px) * dy - (s[1] - py) * dx) / den;
+    if (t > 0 && u >= 0 && u <= 1 && (!best || t < best.t)) best = { t, x: px + t * dx, y: py + t * dy };
+  }
+  return best;
+}
+
+// one panel: env = {segs, draw(P) -> svg string}; mice = [{d, ghost}] ; notes
+function wcPanel(opt) {
+  const S = opt.scale, xmin = opt.xmin, xmax = opt.xmax, ymin = opt.ymin, ymax = opt.ymax;
+  const W = (xmax - xmin) * S, H = (ymax - ymin) * S + 34;
+  // mouse frame +x is LEFT; the screen's +x is right, so mirror: screen x = (xmax - x)
+  const P = (x, y) => [((xmax - x) * S).toFixed(1), ((ymax - y) * S + 30).toFixed(1)];
+  const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  let o = `<svg width="${W.toFixed(0)}" height="${H.toFixed(0)}">`;
+  o += `<text x="6" y="12" class="t">${esc(opt.title)}</text>`;
+  if (opt.sub) o += `<text x="6" y="24" class="dim">${esc(opt.sub)}</text>`;
+  o += `<clipPath id="wcclip${opt.title.charCodeAt(0)}"><rect x="0" y="30" width="${W.toFixed(0)}" height="${((ymax - ymin) * S).toFixed(0)}"/></clipPath>`;
+  o += `<g clip-path="url(#wcclip${opt.title.charCodeAt(0)})">` + opt.env.draw(P, S, opt) + "</g>";
+  for (const m of opt.mice) {
+    const d = m.d, g = m.ghost;
+    const [bx, by] = P(d + WC.halfW, WC.halfL);
+    o += `<rect x="${bx}" y="${by}" width="${(2 * WC.halfW * S).toFixed(1)}" height="${(2 * WC.halfL * S).toFixed(1)}" rx="4" fill="${g ? "none" : "#2c4f7c"}" stroke="${g ? "#6b7280" : "#7fb3ff"}" stroke-width="${g ? 1 : 1.5}" ${g ? 'stroke-dasharray="4 3"' : ""}/>`;
+    // nose mark + centreline
+    const [nx1, ny1] = P(d, WC.halfL), [nx2, ny2] = P(d, -WC.halfL);
+    o += `<line x1="${nx1}" y1="${ny1}" x2="${nx2}" y2="${ny2}" stroke="${g ? "#4b5563" : "#9fc3ff"}" stroke-width="0.8" stroke-dasharray="2 3"/>`;
+    const [tx, ty] = P(d, WC.halfL + 7);
+    o += `<polygon points="${P(d - 5, WC.halfL).join(",")} ${P(d + 5, WC.halfL).join(",")} ${tx},${ty}" fill="${g ? "#6b7280" : "#7fb3ff"}"/>`;
+    if (g) continue;
+    // wheels
+    for (const sx of [-1, 1]) {
+      const [wx, wy] = P(d + sx * WC.halfW - (sx > 0 ? 0 : -6), 14);
+      o += `<rect x="${wx}" y="${wy}" width="${(6 * S).toFixed(1)}" height="${(28 * S).toFixed(1)}" fill="#1b1e24" stroke="#9fc3ff" stroke-width="0.8"/>`;
+    }
+    // front beams, faint (not used by wcal)
+    for (const f of WC.front) {
+      const [fx, fy] = P(d + f.x, f.y), [ex, ey] = P(d + f.x, f.y + 70);
+      o += `<line x1="${fx}" y1="${fy}" x2="${ex}" y2="${ey}" stroke="#ff6b6b" stroke-width="0.6" stroke-dasharray="2 4" opacity="0.4"/>`;
+    }
+    // side beams to their hits
+    for (const sb of WC.side) {
+      const sign = sb.dir;
+      const sx = d + sb.x, sy = sb.y;
+      const hit = wcRayHit(sx, sy, sb.deg, sign, opt.env.segs);
+      const [ax, ay] = P(sx, sy);
+      o += `<circle cx="${ax}" cy="${ay}" r="2.2" fill="#ff6b6b"/>`;
+      if (!hit) continue;
+      const [hx, hy] = P(hit.x, hit.y);
+      o += `<line x1="${ax}" y1="${ay}" x2="${hx}" y2="${hy}" stroke="#ff6b6b" stroke-width="1.2"/>`;
+      o += `<circle cx="${hx}" cy="${hy}" r="2.5" fill="none" stroke="#ff6b6b" stroke-width="1"/>`;
+      const lat = Math.abs(hit.x - d);        // what the beam reports (lateral from centre)
+      const [lx, ly] = P(d + sign * 20, sy - 14);
+      o += `<text x="${lx}" y="${ly}" class="beam" text-anchor="${sign > 0 ? "end" : "start"}">${sb.name} ≈ ${lat.toFixed(0)}</text>`;
+    }
+  }
+  if (opt.move) {  // sideways arrow under the mouse: from -> to (mm, + left)
+    const y = -WC.halfL - 14;
+    const [x1, y1] = P(opt.move[0], y), [x2] = P(opt.move[1], y);   // mirrored with P
+    o += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y1}" stroke="#ffb46e" stroke-width="1.5" marker-end="url(#wcarrow)"/>`;
+    const [mx, my] = P((opt.move[0] + opt.move[1]) / 2, y - 12);
+    o += `<text x="${mx}" y="${my}" class="mv" text-anchor="middle">${esc(opt.moveText || "")}</text>`;
+  }
+  for (const n of (opt.notes || [])) {
+    const [nx, ny] = P(n[0], n[1]);
+    o += `<text x="${nx}" y="${ny}" class="${n[3] || "dim"}" text-anchor="${n[4] || "middle"}">${esc(n[2])}</text>`;
+  }
+  return o + "</svg>";
+}
+
+// the corridor: walls at +/-84 face, 12 thick, posts every cell
+function wcCorridorEnv() {
+  const f = WC.face, w = WC.wall;
+  return {
+    segs: [[f, -400, f, 400], [-f, -400, -f, 400]],
+    draw(P, S, box) {
+      const y0 = box.ymin, y1 = box.ymax;
+      let o = "";
+      for (const sx of [-1, 1]) {
+        const [x, y] = P(sx > 0 ? f + w : -f, y1);
+        o += `<rect x="${x}" y="${y}" width="${(w * S).toFixed(1)}" height="${((y1 - y0) * S).toFixed(1)}" fill="#3a3f4a"/>`;
+        for (const py of [-90, 90]) {
+          const [qx, qy] = P(sx > 0 ? f + w : -f, py + w / 2);
+          o += `<rect x="${qx}" y="${qy}" width="${(w * S).toFixed(1)}" height="${(w * S).toFixed(1)}" fill="#6b7280"/>`;
+        }
+      }
+      // centreline
+      const [cx1, cy1] = P(0, y1), [cx2, cy2] = P(0, y0);
+      o += `<line x1="${cx1}" y1="${cy1}" x2="${cx2}" y2="${cy2}" stroke="#2a2e36" stroke-width="0.8" stroke-dasharray="3 4"/>`;
+      return o;
+    },
+  };
+}
+
+// the diagonal: mouse on the centreline through the aperture midpoints. The
+// posts ALTERNATE sides -- 63.6 off the line, one side every 254.6, the other
+// side half-way between -- and each side's walls are a 45-degree sawtooth
+// with a post at every apex (63.6) and valley (190.9). 'side' (+1 left, -1
+// right) says which post is at the beam, 'postAhead' up the line.
+function wcPostEnv(side) {
+  const a = WC.postOff, v = WC.postValley, pitch = WC.postPitch, ya = WC.postAhead(side);
+  const segs = [], teeth = [];
+  for (const sx of [-1, 1]) {
+    const y0 = sx === side ? ya : ya + pitch / 2;
+    const pts = [], inner = [];
+    for (let k = -2; k <= 1; k++) {
+      const y = y0 + k * pitch;
+      pts.push([sx * a, y], [sx * v, y + pitch / 2]);
+      inner.push([sx * WC.postIn, y], [sx * (v - 6 * Math.SQRT2), y + pitch / 2]);
+    }
+    teeth.push(pts);
+    for (let i = 0; i + 1 < inner.length; i++) segs.push([inner[i][0], inner[i][1], inner[i + 1][0], inner[i + 1][1]]);
+  }
+  return {
+    segs,
+    draw(P, S, box) {
+      let o = "";
+      for (const pts of teeth) {
+        o += `<polyline points="${pts.map(q => P(q[0], q[1]).join(",")).join(" ")}" fill="none" stroke="#3a3f4a" stroke-width="${(WC.wall * S).toFixed(1)}" stroke-linejoin="miter" stroke-miterlimit="4"/>`;
+        for (const q of pts) {   // posts: 12 mm squares, 45 deg to the line
+          const [cx, cy] = P(q[0], q[1]);
+          o += `<rect x="${(cx - 6 * S).toFixed(1)}" y="${(cy - 6 * S).toFixed(1)}" width="${(12 * S).toFixed(1)}" height="${(12 * S).toFixed(1)}" fill="#6b7280" transform="rotate(45 ${cx} ${cy})"/>`;
+        }
+      }
+      const [cx1, cy1] = P(0, box.ymax), [cx2, cy2] = P(0, box.ymin);
+      o += `<line x1="${cx1}" y1="${cy1}" x2="${cx2}" y2="${cy2}" stroke="#c9a227" stroke-width="0.8" stroke-dasharray="3 4"/>`;
+      return o;
+    },
+  };
+}
+
+function wcalDraw() {
+  const defs = `<svg width="0" height="0" style="position:absolute"><defs><marker id="wcarrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#ffb46e"/></marker></defs></svg>`;
+  const cor = wcCorridorEnv(), S = 0.85;
+  const cbox = { scale: S, xmin: -112, xmax: 112, ymin: -100, ymax: 150, env: cor };
+  const t = WC.touch;
+  const r1 = document.getElementById("wcalrow1");
+  r1.innerHTML = defs +
+    `<div class="steps"><b>1. Corridor sweep &mdash; <code>wcal s</code></b>
+     <p>A straight with <b>both</b> walls (168 mm face to face). The mouse stays
+     <b>parallel to the walls throughout</b>; only slide it sideways. (Red = the
+     beams, drawn from their real emitters: they cross at the nose.)</p>
+     <ol><li>Start <b>centred</b> and parallel; hold ~1 s (that stretch is the centre reading).</li>
+     <li>Slide <b>left</b> until the body <b>touches the left wall</b>, pause.</li>
+     <li>Slide across until it <b>touches the right wall</b>, pause.</li>
+     <li>Back to centre; press <code>wcal</code> to stop (30 s auto).</li></ol>
+     <p>What it gives: each beam's reading <b>at contact</b> (its zero &mdash; the flinch
+     contact constant), the centre bias (L&minus;R)/2, and L+R, which should stay
+     at 168 the whole way &mdash; if it wanders, a beam's slope is off.</p>
+     <p class="dim" style="color:#6b7280">Optional statics for <code>wcal fit</code>: <code>wcal c</code>,
+     <code>wcal l</code>, <code>wcal r</code> = centred / 10 mm left / 10 mm right,
+     measured from the same wall face.</p></div>` +
+    wcPanel({ ...cbox, title: "1  centred, parallel", sub: "hold ~1 s", mice: [{ d: 0 }],
+              notes: [[0, 140, "168 face to face", "dim"], [0, -80, "L + R = 168", "dim"]] }) +
+    wcPanel({ ...cbox, title: "2  slide LEFT until it touches", sub: "keep it straight", mice: [{ d: 0, ghost: true }, { d: t }],
+              move: [0, t], moveText: `${t} mm`, notes: [[0, -95, "L at contact = zero", "dim"]] }) +
+    wcPanel({ ...cbox, title: "3  across to the RIGHT wall", sub: "keep it straight", mice: [{ d: t, ghost: true }, { d: -t }],
+              move: [t, -t], moveText: `${2 * t} mm`, notes: [[0, -95, "R at contact = zero", "dim"]] }) +
+    wcPanel({ ...cbox, title: "4  back to centre, then 'wcal'", sub: "stops the sweep", mice: [{ d: -t, ghost: true }, { d: 0 }],
+              move: [-t, 0], moveText: `${t} mm` });
+
+  const pbox = { scale: S, xmin: -150, xmax: 150, ymin: -100, ymax: 190, env: null };
+  const st = WC.postStep, lpa = WC.postAhead(1), rpa = WC.postAhead(-1);
+  const lp = wcPostEnv(1), rp = wcPostEnv(-1);
+  const r2 = document.getElementById("wcalrow2");
+  r2.innerHTML =
+    `<div class="steps"><b>2. Diagonal posts &mdash; four tests, one post at a time</b>
+     <p>In a real diagonal the posts <b>alternate</b>: 63.6 mm off the centreline,
+     one side every 254.6 mm, the other side half-way between, so a beam only
+     ever sees one post and the far side is the opposite sawtooth's valley
+     (190.9 mm). Tape the centreline (aperture midpoint to aperture midpoint);
+     a nose mark and a tail mark on the tape = centred and straight.</p>
+     <p><b>The side beams cross</b>: the LEFT beam fires from the emitter on the
+     right of the body, across the nose, 17.2&deg; forward of square; the RIGHT
+     beam from the left emitter at 19&deg;. So the beam reads a post lowest when
+     the post's near corner is ~${lpa.toFixed(0)} (L) / ${rpa.toFixed(0)} (R) mm ahead of the mouse
+     centre &mdash; about ${(lpa - WC.halfL).toFixed(0)} mm ahead of the nose. Place it there and nudge fore/aft
+     for the lowest reading (<code>wcal w</code> shows the beams while you do).</p>
+     <ol><li><code>wcal lp</code> &mdash; centred, LEFT post at the beam, 2 s static.</li>
+     <li><code>wcal lps</code> &mdash; sweep: centred, hold ~1 s, slide <b>toward</b> the post
+     ${st} mm (tape mark), back to centre, <b>away</b> ${st} mm, back; <code>wcal</code> to stop.</li>
+     <li><code>wcal rp</code> &mdash; the same static with a RIGHT post.</li>
+     <li><code>wcal rps</code> &mdash; the same sweep with the RIGHT post.</li></ol>
+     <p>The centred reading is that side's post constant (DGATE's 57.6, per side);
+     the &plusmn;${st} give the slope each way. After every capture the beams stay on
+     (watch lines) for the next placement; only <code>wcal off</code> turns them off.</p></div>` +
+    wcPanel({ ...pbox, env: lp, title: "5  LEFT post at the beam, centred", sub: "wcal lp", mice: [{ d: 0 }],
+              notes: [[0, 182, "tape line", "dim"], [-WC.postOff - 24, lpa - 30, "63.6", "dim"]] }) +
+    wcPanel({ ...pbox, env: lp, title: `6  ${st} toward the post, back, ${st} away, back`, sub: "wcal lps", mice: [{ d: 0, ghost: true }, { d: -st, ghost: true }, { d: st }],
+              move: [0, st], moveText: `${st} mm, back, ${st} away` }) +
+    wcPanel({ ...pbox, env: rp, title: "7  RIGHT post at the beam, centred", sub: "wcal rp", mice: [{ d: 0 }],
+              notes: [[0, 182, "tape line", "dim"], [WC.postOff + 24, rpa - 30, "63.6", "dim"]] }) +
+    wcPanel({ ...pbox, env: rp, title: `8  ${st} toward the RIGHT post, back, ${st} away`, sub: "wcal rps", mice: [{ d: 0, ghost: true }, { d: st, ghost: true }, { d: -st }],
+              move: [0, -st], moveText: `${st} mm, back, ${st} away` });
+}
+
+function wcalToggle() {
+  const p = document.getElementById("wcalpanel");
+  if (p.hidden) { wcalDraw(); p.hidden = false; p.scrollIntoView({ block: "start" }); if (link) send("wcal"); }
+  else p.hidden = true;
+}
+
+document.getElementById("cmd").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    const t = e.target.value.trim();
+    if (t) { send(t); e.target.value = ""; }
+  }
+});
+document.getElementById("btnLog").onclick = () => {
+  const blob = new Blob([logbuf.join("\n") + "\n"], { type: "text/plain" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "tune_session_" +
+    new Date().toISOString().replace(/[:T]/g, "-").slice(0, 19) + ".log";
+  a.click();
+};
+
+/* ------------------------------------------------ params */
+const rows = {};
+
+/* What each registry parameter DOES -- shown as hover tooltips on the
+   table and, in full, under "what the parameters do" below it. Text is
+   maintained here (the firmware sends only name/value/min/max in PARAMDEF);
+   the source of truth for behaviour is Control.h -- keep the two in step
+   when a parameter is appended. A name the firmware sends that has no
+   entry here still gets a row, flagged so the gap is visible. */
+const PARAM_HELP = {
+  vmaxl: "Motor calibration: left wheel's no-load speed at 100% duty, mm/s. The wheel loop's speed feedforward is duty = v/vmax, so a wrong value shows as a constant duty offset the P term has to cover. Measured by the duty sweep ('d'), not hand-tuned.",
+  vmaxr: "As vmaxl, right wheel. The l/r split (7515 vs 7591) is real motor asymmetry.",
+  fricl: "Static-friction feedforward, left wheel: duty added in the direction of motion to cover breakaway and drag. Too high and the wheel creeps at zero command.",
+  fricr: "As fricl, right wheel.",
+  kp: "Wheel-velocity P gain on STRAIGHTS, duty per mm/s of wheel-speed error. One of THREE P regimes: kp straights, kpt in-place turns, kparc rolling arcs. Soft on purpose -- straights are steered by kyaw/kx, not by wheel stiffness. Raise it and straights buzz.",
+  kpt: "Wheel P gain during IN-PLACE turns only (search spins, the lap-end self-turn). Tyre scrub needs a much stiffer loop to break away cleanly -- the tuned 0.0107 is ~25x the straight kp. Not used on arcs: feeding it to arcs was the duty-saturation 'gritty corners' bug (fixed by kparc, run 190).",
+  kd: "Wheel-velocity D gain, damps kp. Usually 0 -- the encoder velocity is already filtered (vfilt), and D on a filtered signal mostly adds noise.",
+  ka: "Acceleration feedforward, duty per mm/s^2 -- covers speed ramps so kp doesn't have to. Physical value ~2.5e-6 (queued experiment). A corrupted 1.5e-4 once cost two days as phantom 'stiction'; the clamp now tops at 2e-5.",
+  kx: "Along-track position P gain: pulls the path distance s back onto the profile, mm/s of speed command per mm of along-track error.",
+  kyaw: "Heading P gain: wheel-speed DIFFERENTIAL per degree of yaw error. The main steering stiffness everywhere (10 tuned; the compiled 2 was a relic that misled a whole lag analysis -- registry rule exists because of it).",
+  strim: "Constant steering trim on straights (differential duty). RETIRED to 0 (run 197): kyawi now absorbs the real torque asymmetry, and the old -0.0886 (measured runs 138-140, pre-kyawi) had become an over-correction the servo fought all lap -- straights flew ~1 deg crabbed. Leave at 0 unless kyawi is off.",
+  track: "Effective track width, mm: converts commanded yaw rate to wheel-speed differential. Measured 72.31 on the floor ('t' auto-fit); the compiled 59 was wrong and every arc built on it.",
+  tasym: "Turn-asymmetry feedforward: scales the turn differential slightly differently left vs right, covering motor/tyre asymmetry in corners. 0.05 (runs 195/196) cut U-turn lateral drift ~25%; barely moved the right-90 over-rotation.",
+  us: "Arc understeer boost: fractional extra on the path executor's yaw-rate feedforward, arcs only. RETIRED to 0 -- it was compensating the kpt-on-arcs saturation bug, which kparc fixed properly.",
+};
+/* The readable version of the same text, grouped so the three-regime split
+   and the feedforward family read as systems rather than 26 loose knobs. */
+const PARAM_GROUPS = [
+  ["Wheel loop -- three P regimes", ["kp", "kpt", "kparc", "kd"]],
+  ["Wheel loop -- feedforwards", ["vmaxl", "vmaxr", "fricl", "fricr", "ka"]],
+  ["Steering", ["kyaw", "kyawi", "kyawimax", "dvmax", "kx", "strim"]],
+  ["Turn shaping", ["tasym", "us", "kslip", "track"]],
+  ["Odometry", ["circl", "circr", "vfilt"]],
+  ["Mission (compiled per leg at arm)",
+   ["rv", "ralon", "ralat", "rslew", "rur", "r90", "l90", "goff"]],
+  ["Corner-type gate offsets (the type database, column one)",
+   ["goffr", "goffl", "goffur", "gofful", "gklat", "gklatr", "glearn",
+    "atrim", "utrim", "fgate", "ftrim", "dgate", "dtrim", "dlat",
+    "dmax", "sacc", "sbrk", "flinch", "ftau", "walign", "vout", "latk", "starty", "r135"]],
+];
+const PARAM_HELP_TAIL = {
+  kslip: "Slip-angle feedforward: yaw offset proportional to lateral acceleration, modelling tyre slip in fast arcs. 0 at current speeds; revisit above ~v700.",
+  circl: "Left wheel circumference, mm -- the odometry distance scale. Calibrate with straight floor runs BEFORE touching steering trims: a circumference error and a steering error fight each other if measured together.",
+  circr: "As circl, right wheel. The l/r split is real tyre difference.",
+  vfilt: "Odometry velocity low-pass alpha per 2 ms tick (higher = fresher, noisier). Sets most of the wheel loop's measurement lag: 0.2 ~= 10 ms of the old 15 ms lag budget. Queued experiment: 0.35 for less lag, watch for duty buzz.",
+  dvmax: "Clamp on the heading-correction wheel-speed differential, mm/s. Caps how hard kyaw/kyawi may steer; too low and big corrections saturate, too high and a bad heading estimate can slew a wheel violently.",
+  kyawi: "Heading INTEGRAL gain: drains standing yaw bias (torque asymmetry, carpet grain) to zero on straights. This is what made strim redundant. Raise if a constant crab persists; lower if heading oscillates slowly.",
+  kyawimax: "Clamp on the yaw integrator's total authority (differential fraction). Bounds windup so a wall-following transient can't store a big false correction.",
+  rv: "Route/lap speed, mm/s. Compiled into the path at arm -- change between laps, takes effect on the next Start lap. Corner parameters are tuned PER SPEED CLASS: re-tick the scoreboard after changing it.",
+  ralon: "Route longitudinal accel/brake limit, mm/s^2 -- how hard the lap speeds up and slows down along the path.",
+  ralat: "Route lateral accel limit, mm/s^2 -- with the corner radius this sets the speed the planner allows through each arc (v^2 = ralat x R).",
+  rslew: "Yaw-rate ramp limit, deg/s^2, used by the clothoid entry/exit of every corner. Floored at the U-turn geometry's requirement -- below that the clothoids clip and every corner enters late and runs wide (the pre-kparc bulge mechanism).",
+  kparc: "Wheel P gain on ROLLING ARCS -- the third regime (see kp/kpt). 0.004: high enough to track the arc profile, low enough not to rail the duty. Too high = the old gritty saturated corners; too low = under-rotated arcs (168 deg of a 180 at 0.0004). The A/B ladder was runs 190-193.",
+  goff: "Gate expectation offset, mm: shifts WHERE every corner's post-drop is expected along track (positive = later). One knob for a systematic sensor-geometry early/late in seeing the post edge -- tune it against the lap report's gate corr column: a corr that is always the same sign at every LOCKed corner is goff, not eight per-corner trims. Captured at launch.",
+  rur: "U-turn radius, mm. >0 forces the radius and solves the clothoid around it (71.74 = the -20% experiment flying since run 184); 0 solves the radius from the corner rail instead (~89.7 at v500 -- restores ~49 mm of gate room). Compiled per leg like rv. Since 2026-08-29 the U geometry is solved at the speed the U is actually flown (sqrt(ralat x rur)), so single-clothoid 180s survive at high rv instead of decomposing into squared 90 pairs.",
+  goffr: "Per-type gate offset, RIGHT 90s, mm -- ADDED to goff for corners of the type. Positive = expect the post later = the turn starts later in the world ('rights exit tight' -> try +5). Steers GATED corners only; a NO_EDGE corner takes no correction so no offset can reach it.",
+  goffl: "Per-type gate offset, LEFT 90s, mm. See goffr.",
+  goffur: "Per-type gate offset, RIGHT 180s (U-turns), mm. See goffr.",
+  gofful: "Per-type gate offset, LEFT 180s (U-turns), mm. See goffr.",
+  gklat: "Gate lateral compensation, LEFT beam (left turns), mm of drop correction per mm of lateral toward the inside wall. From the spec laser geometry (sensor_cal_config: left beam inclined 19 deg forward) the slope is tan(19) = 0.34. An off-centre approach reads the post early/late by slope x lateral; this undoes it with the lateral the gate already measured. 0 = off. Flown clean since laps 101-106.",
+  gklatr: "Gate lateral compensation, RIGHT beam (right turns). Spec geometry: right beam inclined 17.2 deg forward, slope tan(17.2) = 0.31. See gklat. (The earlier bench estimate of 0.18/0.68 was yaw-contaminated; the spec values are the ones that flew clean.)",
+  atrim: "ARC PLACEMENT trim for 90s, mm -- THE exit-lateral lever. Positive = every gated 90's arc starts LATER in the world = the exit moves toward the OUTSIDE wall, ~1:1 (ring rig, runs 120-122). Applied to the correction the gate applies, so the corr column stays the honest measurement. This is the knob to use for 'exits run tight to the inner wall' -- the goff family cannot do it any more: with glearn active the learner drives corr to 0 against the physical edge and cancels any expectation offset within two laps. Laps 120-150 measured exits +12..20 mm inside at every radius, so start at atrim=14. Changing it makes the goff table re-converge once (2-3 laps).",
+  utrim: "ARC PLACEMENT trim for 180s (U-turns), mm. Same lever as atrim, same sign (positive = later = outward). The Us measured +12..15 mm inside in dir=a laps 120-139.",
+  r90: "RIGHT-90 radius override, mm. 0 = the compiled ladder top (84 -- the max-clearance radius, arc centred on the inside post). >0 forces that radius for every right 90; demotions still walk the compiled ladder below, U-turns keep rur. The lever is corner speed (v = sqrt(ralat x R): R84 -> 641 mm/s at ralat 4900, R100 -> 700, R125 -> 782); the cost is clearance margin the compiler does not model. Usable band ends ~R200 (body needs 35 of the corner's clearance).",
+  l90: "LEFT-90 radius override, mm. See r90 -- same rules, other direction. Separate knobs because the rig's left and right corners are different physical walls.",
+  fgate: "FRONT-WALL gate. 0 = off. 1 = OBSERVE: measures the front wall and records it as fcorr beside the side gate's corr, but never steers -- flies identically to fgate=0, so it is safe. 2 = FALLBACK: the side edge stays the PRIMARY key (it fires at least as early and repeats better -- sd 0.8 vs 1.4 on matched data), and the front only steers corners where the side gate found NO edge at all, which today fly on an inherited anchor. 3 = PRIMARY: front leads and the side refines it (aggressive; this is the mode that needed the atrim and ftrim bugs fixed). Start at 1, then 2.",
+  ftrim: "FRONT-gate bias trim, mm -- the offset between the front wall's reading and the side post's. MEASURED 2026-08-30 (laps 235-240, fcorr paired against corr on the SAME corner): the front reads a constant -13.5 mm (sd 1.7) below the side gate across 5 corners, both directions, 90s and U-turns alike. TUNING RULE: ftrim = mean(fcorr - corr) from a fgate=1 observe session; that makes the two instruments agree. Expect ~-13.5 on this rig. (An earlier reading of this as a PER-CORNER bias was wrong: it compared the front's absolute value between corners, which really tracks the true along-track error at each -- notably the ~40 mm hand-placement error that always lands on corner 0.)",
+  dgate: "DIAGONAL gate. On a diagonal the posts flick past on alternate sides every 127.3 mm; each is seen by the side beam as a descending ramp then a sharp drop-out (laps 291-296: six posts, every drop-out within 2-9 mm of the geometry, sd 2.6). 0 = OBSERVE: record every post against prediction, never steer (DGATE lines at leg end). 1 = ALONG-TRACK: correct s off each drop-out edge -- each post is a fresh anchor with the rest of the diagonal to drain into. 2 = ALONG-TRACK + LATERAL: also hold a lateral bias from the post minima (face at 57.6 mm from the line), refreshed at every post. The 45s at either end are never gated -- the 45-in's edge drops as its arc begins.",
+  dtrim: "Diagonal edge trim, mm, added to every predicted post drop-out. Geometry: drop = post foot - beam lead + 6 (post half-width). First flight measured the real edge +6.2 mm later than that (sd 2.6). TUNING RULE: dtrim = mean(obs - pred) from a dgate=0 session; the DGATE lines print both. Expect ~+6 on this rig.",
+  dlat: "Where the diagonal's centre line IS, mm, + = left of where the post minima say. At dgate=2 the posts steer toward dlat instead of measured zero. Exists because the lateral measurement carries the beams' own ~3 mm L/R asymmetry, so a servo to zero parks slightly off the true line. TUNING RULE: fly dgate=2 with dlat=0, read the settled DGATE lat column, set dlat to where the mouse should sit. Does nothing below dgate=2.",
+  sacc: "SLIP MODEL, accelerating: mm of odometry over-read per m/s of speed GAINED under drive (0-200, default 0 = off). A driven wheel turns further than the body moves while it accelerates, so the mouse thinks it is ahead of where it is -- the 'positive drift = wheels ahead of the world' the gate corrections have been showing, and what the goff table was absorbing as if it were corner geometry. The model adds -sacc x dv to s between anchors; the gates measure what is left. FIT IT from the lap report: each anchoring corner now prints ds (mm dead-reckoned since the last anchor), dva / dvb (speed gained / shed over it) and slip (what the model already added). corr vs dva across a ralon ladder is the slope. The ralon-1800 laps (400-402) put the launch straight at ~40 mm over ~800 mm/s: sacc ~ 50. With it right, ralon stops invalidating the table.",
+  sbrk: "SLIP MODEL, braking: mm of odometry UNDER-read per m/s of speed SHED (0-200, default 0 = off). Under braking the wheel slows faster than the body (slides), so the odometer reads short; the model adds +sbrk x |dv|. Fit from the same LC columns as sacc (corr vs dvb). Usually smaller than sacc; set 0 until the data says otherwise.",
+  flinch: "THE FLINCH REFLEX, mm (0-70, 0 = off). On STRAIGHTS, a raw side beam closer than this steers the mouse away from that wall: 0.5 deg per mm inside the limit, capped at 8 deg, on top of the corridor servo (0.125 deg/mm, needs both walls) -- and it works with ONE wall or none in the model's terms, because a beam saying 'wall here' is enough. Since the vector version (ftau) it also needs the beam to be closing or steady, not receding (a wall being left behind gets nothing). On the DIAGONAL the same law applies from 45 mm on either beam: a reading of ~38 is the BODYWORK (lap 52 hit post 2 at a reading of 37, lap 48 touched at 39, 41-44 were clean), so posts at 41-48 on a centred run are 3-10 mm in hand and a reading in the low 40s gets a nudge. In ARCS the reflex is ftau's. Start at 40. Watch: apex/lat columns unchanged on clean laps, laterals pulled in on the bad ones; the REFLEX line after each lap counts the fires.",
+  ftau: "THE VECTOR REFLEX, ms (0-500, 0 = off) -- the flinch inside an ARC. Watches the INSIDE beam only (the outer one is meant to close to 36-45 at the apex) and fires on time-to-contact: range divided by the beam's closing speed (measured over the last 4 mm of travel). When the range is under 60 mm and that time is under ftau, the heading is biased AWAY from the inside post -- opening the arc -- ramping to the full 8 deg once the time is under ftau/2, and released the moment the beam lets go or recedes. Why a vector: lap 51 (2026-09-05) clipped the 45-in's inside post from the SAME place lap 50 passed clean; the one difference was that its inside beam HELD a target through the arc and closed at ~380 mm/s from 64 down to 40, where the clean lap's beam let go at 64. 62 mm is a normal number 11 deg into a turn; 62 mm closing at 380 mm/s is 160 ms from contact. Simulated on both logs: 200 fires from s2521 on the crash lap (75 mm / 105 ms before the hit) and nowhere on the clean one. Start at 200. Not used on the diagonal (posts sweep past at tau ~50 ms on a clean pass -- there the flinch range rule applies from 35 mm). Watch the REFLEX line: n= fires, max= peak bias, s= where.",
+  walign: "WALL-FRAME ALIGNMENT, gain 0-1 (0 = off). The path's heading datum used to be the gyro yaw at launch -- the BODY's frame -- and nothing ever moved it, so a mouse that settled 2 deg clockwise on its datum press flew the whole lap 2 deg off: every straight the lateral servo traded angle for offset, every arc was entered with that bias dropped, gates missed, and laps 57/60 (2026-09-05) crashed where the three hand-aligned laps of the same session were clean. With this on, on every straight with BOTH walls the corridor's direction is measured from the walls -- the lateral drift rate against the measured heading, over 150 mm of travel (an offset does not drift, so it cannot be mistaken for an angle) -- and the path frame is rotated toward it by this fraction of the estimate per window, at most 1 deg per window and 6 deg per lap. The gyro keeps the short term; the walls own the frame. Replayed on the logs: +1.9..+2.4 every window on the crashed lap, -0.5..-1.0 on the clean ones. Start at 0.8: the launch straight gives 4 windows, converged by the second. Watch the FRAME line after each lap: applied= total rotation, windows=, last_est= the residual (should sit near 0 by the lap end).",
+  vout: "THE V USES THE ROOM OUTSIDE IT, mm (0 = off). Around a V (diagonal-to-diagonal 90) the outside is empty: the diagonals' outer posts sit one post pitch (127 mm) before and after the V station and between them the outer side is only the sawtooth valley at 191 mm. With vout the diagonal lateral set point is pushed OUTWARD by this much, ramped in over the last 127 mm before the V's arc and back out over the first 127 mm after it, and the V is compiled at R64 + vout on the same centre (the inside post): offset lines meet a bigger arc at the same stations, so the arc timing does not move, the inside clearance grows by vout, and the outer posts lose nothing. Costs a longer arc (8 mm x pi/2 = 13 mm) -- bert 2026-09-07: 'worth it even at a time cost'. Bounded by how fast the lane change can happen (0.36 deg/mm, 5 deg clamp: ~9 mm in 100 mm). Start at 8; the LC line shows the V at r=72. A new maze needs a route recompile (route.go does).",
+  latk: "CORRIDOR LATERAL SERVO GAIN, deg of heading bias per mm of lateral error (0.05-0.6; compiled default 0.15). The lane change on straights is first order with a length constant of 1/k radians: 382 mm at 0.15, 191 at 0.3, 127 at 0.45. Measured with the step test 2026-09-07 at 1016 mm/s and 0.15: +10 mm commanded gave +8 in 200 mm and a 60-80 % plateau, +20 gave +13 in 250 mm, yaw error under 1 deg throughout, no overshoot -- the gain is the limit, not the mouse. It was cut 0.6 -> 0.3 -> 0.15 for ringing at speed in July/August, when the heading loop lagged the bias; the biases are now slewed with feedforward and the heading follows within a degree, so raise it WITH THE STEP TEST: 'lstep 20' at 0.3, look for overshoot in the LS table, then 0.45. The bias clamp is 10 deg. The diagonal's post servo has its own compiled gain (0.36) and does not follow this.",
+  r135: "THE 135 SWITCH (0/1, default 1). 1 = the route compiler flies a diagonal straight into a corridor, or a corridor straight into a diagonal, as ONE 135-degree arc round the wall-end post (D10's two hairpin-on-a-staircase joins; CAL-6 rev C's tooth). 0 = the pre-135 parse: that pair is a U-turn, and where the U has no room it is un-merged into two 90s flown slow on the speed rung. A switch for A/B laps on the same maze while the 135 earns its gates, not a tune. Compiled per leg at route.go. Stage one, like the 45s: flown, observed, not gated -- the 135-in is placed by the corridor before it, the 135-out by the diagonal's posts. R84 clearance ~15 mm at the inside post (it pivots round it), 68 to the end wall.",
+  sv: "SEARCH SPEED, mm/s (default 100; 50..400). The rolling search (Explore.h, 2026-09-12): the mouse flies a path that is extended a cell at a time as the walls come in -- R60 turns entirely inside the cell (30 mm straight, quarter arc, 30 mm straight), decisions 20 mm past each boundary from the side beams' votes, every wall end and front wall an along-track anchor, the corridor held by the lateral servo (latk) and the yaw datum trimmed by the wall frame (walign). At 100 mm/s the planner brakes only in the last 7 mm before an undecided turn point, so a late decision is a stop inside the cell, never a hit. The geometry holds to ~300; above that the side evidence window gets thin. Console 'e' (or the wave); 'search.old' is the stop-and-sense search.",
+  tomg: "IN-PLACE TURN RATE, deg/s (default 450; 100..720). The goal 180 of a two-leg run and the search's dead-end turns. The first recorded goal turn (D9, 2026-09-15) reached a mean 298 deg/s against 450 asked, sd 99, with the wheels at the odometric equivalent of 428 -- ~30 % tyre slip in place, judder, and the body walked ~26 mm sideways and ~30 mm along. Tune to what the floor delivers: read omega vs the ref and the wheel velocities (obs_along/obs_cross) in the turn records (flags bit4), and the side beam before/after for the sideways walk.",
+  talp: "IN-PLACE TURN RAMP, deg/s^2 (default 4000; 500..10000). Companion to tomg; the ramp the wheels are asked to deliver into and out of the turn. Too steep breaks the tyres loose at the start; the datum turns at the lap end use 2000.",
+  rv2: "RUN LADDER: peak velocity of the OUT leg on MR2 (the first route run after the search), mm/s. The ladder is driven by a run counter in FRAM (reset by every map save, advanced by every launch from the start; 'mr' shows it, 'mr=0' turns it off and the route flies rv). ralat stays frozen across the rungs so the corners are identical arcs and the learned gate timings transfer; only the straights get faster.",
+  rv3: "RUN LADDER: peak velocity of the OUT leg on MR3, mm/s (see rv2).",
+  rv4: "RUN LADDER: peak velocity of the OUT leg on MR4, mm/s (see rv2).",
+  rv5: "RUN LADDER: peak velocity of the OUT leg on MR5, mm/s (see rv2). Everything past the fifth run flies this too. 2000 has never been flown: it is the 16x16 straight's number, reached only if MR2-4 are clean.",
+  absb: "ABS band (2026-09-24, v2): each wheel's velocity TARGET is clamped to within this fraction of body speed (fused/IMU estimate, +/- the commanded differential) before the loop sees it, so the loop never asks for more slip than the tyre delivers -- a braking wheel is held at body - band, still rolling. 0 = off. Floor 250 mm/s. Healthy slip is 2-7 % below the tyre knee; the lock-ups that hit the end wall were 100 %+. 0.12 default.",
+  vsrc: "Wheel velocity source (2026-09-25): 0 = counts per tick (103 mm/s LSB at 500 Hz, softened by vfilt), 1 = edge timing -- every encoder rising edge is stamped by an 8 MHz timer through the XBAR + DMA and the velocity is edges x 0.823 mm / the time they span (M/T). Timer resolution, one edge of lag, reads zero within an edge-time of stopping. Prove it with 'enc' (count v vs edge v while hand-spinning) before switching. 0 default.",
+  kaa: "Angular acceleration feedforward (2026-09-25): duty per mm/s^2 of the DIFFERENTIAL wheel acceleration the omega rail commands at arc entry/exit. ka used to cover this too, and with ka 5e-5 every D9 corner under-rotated 4-10 deg (the tyres cannot take 0.22 of duty of differential on top of the arc). 0 = the 09-22 arcs. ka stays the launch's linear gain. Tune alone with the corner harness.",
+  rbrk: "Route brake deceleration (2026-09-25): the planner brakes into corners and to the leg end at this rate; 0 = ralon (as always). Separate because the corner-entry brake overlaps the clothoid where the lateral load builds -- ralon 5000 hit the V from a 45-in entered braking at -8400; 4000 flew the ladder clean. Launch at ralon, brake at rbrk.",
+  rdv: "Diagonal speed ceiling (2026-10-03): the out leg flies diagonals only when its peak is at or under rdv mm/s; above it the leg is compiled orthogonal (90s only), like the home leg. Both MR4 (1500) out legs at Hazlemere hit a post leaving a V -- the lane change cannot walk vout back at 500-760 mm/s -- while MR2 (800) and MR3 (1000) flew the same diagonals to the goal. 0 = no limit and the race-day setting since 2026-10-04 (the orthogonal MR4/MR5 flies the worst route type, 0/4 un-merged zigzags, and was slower than the diagonal MR3 on test maze 2).",
+  rvv: "V speed cap (2026-10-04): a V and the turn it hands into within 120 mm are flown at no more than rvv mm/s on every rung. The V arc was never hit at Hazlemere; every V crash was at its exit or the 135 just after it, all above MR3 corner speeds. 320 = the V's MR2 speed (race default); 0 = no cap.",
+  rvu: "U-turn speed cap (2026-10-04): a U is flown at no more than rvu mm/s. ~44 Us flew clean at 338-476 on the test day, so 0 (no cap) is the race default; 340 is the MR2 U speed.",
+  vlearn: "V timing learner (2026-10-04): 1 = a V's first exit post teaches its timing for the next run; 0 = off, and a stored V timing is never applied. Race default 0: on a chain of Vs it moved every V +12 then +20 mm late from a dead reckoning that was 24 mm wrong. glearn (the 90 corners) is separate.",
+  ghome: "How the home leg leaves the goal (2026-10-04): 0 = turn in place and press back onto the first known wall behind (within 3 cells); 1 = loop -- one step ahead into the 2x2 goal block and out of its other door, no turn, no press. A one-door goal refuses the loop and turns in place. Set it when you see the maze.",
+  rturnh: "Home-leg route choice (2026-10-01): the turn cost (cells per turn) the HOME leg uses in place of rturn. The home leg is not timed, so a turn avoided is worth a long detour: 8 = race default. 0 = use rturn. On a maze with only one way home it changes nothing.",
+  dwheel: "Duty mixer (2026-10-01): the straight-line cap dmax now limits the COMMON MODE (speed, the mean of the two wheels); each WHEEL may go to dwheel to keep the steering differential, and if it would pass that the speed gives way, never the steering. 1.0 = race default (one wheel to 100 %, never both). 0 = the old per-wheel clip at dmax.",
+  rturn: "Route choice (2026-09-26/27): with rturn > 0 the compiler builds both the fewest-cells and the fewest-turns route (diagonals merged), times each through the planner at the leg's limits, and flies the lower of time + rturn cells of time per COMPILED turn (U = 2). A diagonal staircase counts as its 2-3 arcs, not its grid turns. 0 = the plain cell flood, no comparison. 3 = race default.",
+  rdiag: "Diagonals on/off (2026-09-26): 1 = the compiler flies 45s, 135s and Vs; 0 = ORTHOGONAL ONLY, every staircase as its 90s (R84, 43 mm inside clearance, the proven geometry). The banker's switch for MR2-MR4 after the home leg hit posts twice on MR2 through a same-hand 45-out / 135-in / V with no room to recentre.",
+  chold: "Clothoid hold (2026-09-26): 1 = the planner brakes to the arc speed by the clothoid START and holds it through both clothoids, so the tyre never carries brake or launch together with the lateral load (the MR5 V crash: 4400 of brake under 4000 of lateral, yaw 15 deg late, the post). 0 = brake into / launch out of the ramps as before. ~15 ms a corner.",
+  vref: "Battery compensation (2026-09-26): every wheel duty x vref/vbat before the dmax ceiling, so V_batt x duty -- the torque -- is what the duty law asked for at the pack voltage it was fitted at. In the vbat instrument's own units (the LAPREP vbat= number): set it to the reading the current tuning was made at, 2.00-2.15 for September. Clamped x0.75..x1.35. 0 = off.",
+  mra: "Ladder acceleration scale at MR2 (2026-09-26): ralat (the corner speeds) x mra at MR2, rising to x1 at MR5 (0.4: x0.4 / x0.6 / x0.8 / x1.0); since 2026-10-04 ralon and rbrk are NOT scaled -- the straights fly at max accel on every rung and the ladder is the corners'. 1 = every rung at the registry accelerations (the tuning ladder). Under 1 for race day, so MR2-MR4 bank a time and only MR5 asks for everything.",
+  rvh: "RUN LADDER: peak velocity of the HOME leg on every rung, mm/s. The return is not scored, so it flies at the speed that is safest; 500 is the reference-lap speed the corner set was built at (corners fly at sqrt(ralat x R) whatever rv is, so 500 leaves them exactly as tuned and only slows the straights).",
+  starty: "THE LAUNCH DATUM, mm (30-90, compiled default 51): where the AXLE is, measured from the maze's rear edge line, when the back panel is pressed on the start cell's rear wall (the wall face is at 6, so 51 = back panel to axle 45). The path's lead-in is 90 - starty and the lap-end datum sequence drives 90 - starty off the cross wall to the centreline, so one number sets both. D8 2026-09-10: diagonal A's first post -- the first landmark after the ungated 45-in -- read ~20 mm EARLY against prediction on every lap, with sacc 45 and 20 alike: the mouse is ~20 mm further along than s from the first packet, a datum error not slip. Measure back panel to axle centre with a ruler, add 6, set it; expect post 1's DGATE corr to fall from +30 toward 0 and its lat from +17 toward 0. Takes effect at the next route.go.",
+  dmax: "Per-wheel duty ceiling (0.30-1.0, default 0.85). The MOTOR protection clamp: 3 V motors on 7.4 V, so 0.85 is already ~2.1x rated voltage -- what kills these motors is sustained STALL, and a crash pinned against a post is a stall. Raising it buys mid-corner yaw authority when dutypk pegs (laps 400-402: understeer into the inner post with duty railed at 0.85) but NOT grip -- past the tyres' slide line extra duty only spins wheels. Fresh battery first: sag costs the same headroom for free. Fixed for the whole lap and printed in LPARAM, so saturation stays checkable against the log.",
+  glearn: "Learning gain of the PER-CORNER goff table the mouse keeps in FRAM alongside the maze ('goffc' lists it). At each lap end every LOCKed corner folds its gate correction into its own (cell, approach) entry: g += glearn x (-corr), so next lap's expectation lands on THAT rig's actual wall edge. 0.5 converges in 2-3 laps. Set 0 to freeze the table (race day: spend the map, don't move it). 'goffc.clear' starts over (keeps hand trims); 'goffc.set x y n|e|s|w mm' hand-writes one learned entry; 'goffc.trim x y n|e|s|w mm' sets that corner's arc trim (+ = later = exit further outside), which the learner never touches.",
+};
+Object.assign(PARAM_HELP, PARAM_HELP_TAIL);   // one lookup, split for layout
+
+/* Fill the "what the parameters do" panel from the same map, grouped. */
+{
+  const dl = document.getElementById("helplist");
+  for (const [title, names] of PARAM_GROUPS) {
+    const dt = document.createElement("dt");
+    dt.textContent = "-- " + title + " --";
+    dt.style.color = "#8a8f99";
+    dl.appendChild(dt);
+    for (const n of names) {
+      const t = document.createElement("dt");
+      t.textContent = n;
+      const d = document.createElement("dd");
+      d.textContent = PARAM_HELP[n] || "(no description)";
+      dl.append(t, d);
+    }
+  }
+}
+
+/* ------------------------------------------------ flight-log capture
+   "Fetch flight log" sends 'y' and captures every line into a buffer
+   instead of the log pane (7000 records would drown it), then saves the
+   whole dump as a .txt exactly like a terminal capture -- so the same file
+   drops onto flight_viewer.html or gets uploaded for analysis. The FRAM
+   ring holds ~13k records and one CAL-6 lap is ~7k, so two laps WRAP and
+   destroy the first: fetch between laps, always.
+   End: the literal "flight log: end". Safety: 10 s of silence also ends
+   the capture (saved with a warning). Truncation check: once the t_ms
+   header names the columns, every record with fewer fields is counted --
+   the radio path is known to clip line tails intermittently (runs 189/190)
+   -- and the count is reported so a bad capture is KNOWN bad, not
+   discovered during analysis. */
+let cap = null;   // {lines, nfields, nrec, ntrunc, timer}
+function capStart() {
+  if (!link) { logline("[not connected]"); return; }
+  cap = { lines: [], nfields: 0, nrec: 0, ntrunc: 0, timer: null };
+  capKick();
+  send("y");
+  logline("[capturing flight log -- lines go to the file, not this pane]");
+}
+function capKick() {
+  if (!cap) return;
+  if (cap.timer) clearTimeout(cap.timer);
+  cap.timer = setTimeout(() => {
+    logline("[capture TIMED OUT after 10 s of silence -- saving what " +
+            "arrived; the dump may be incomplete]");
+    capEnd();
+  }, 10000);
+}
+function capEnd() {
+  if (!cap) return;
+  clearTimeout(cap.timer);
+  const c = cap; cap = null;
+  const name = "flightlog_" +
+    new Date().toISOString().replace(/[:T]/g, "-").slice(0, 19) + ".txt";
+  const blob = new Blob([c.lines.join("\n") + "\n"], { type: "text/plain" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  logline(`[flight log saved: ${name} -- ${c.lines.length} lines, ` +
+          `${c.nrec} records` +
+          (c.ntrunc ? `, ${c.ntrunc} TRUNCATED (radio clipped the line ` +
+                      `tails -- consider re-fetching)` : ", none truncated") +
+          `]`);
+  // Hand the same text to the flight viewer without the save/open round
+  // trip: stash it, light the View button (flight_viewer.html?handoff).
+  try {
+    localStorage.setItem("tw3.flog.handoff", c.lines.join("\n") + "\n");
+    localStorage.setItem("tw3.flog.handoff.name", name);
+    const b = document.getElementById("btnFlogView");
+    if (b) { b.disabled = false; b.title = `open ${name} in the flight viewer`; }
+  } catch (e) { logline("[flight viewer hand-off failed: " + e + "]"); }
+}
+function capLine(line) {
+  cap.lines.push(line);
+  capKick();
+  if (line.startsWith("t_ms,")) cap.nfields = line.split(",").length;
+  else if (cap.nfields && /^\d+,/.test(line)) {
+    cap.nrec++;
+    if (line.split(",").length < cap.nfields) cap.ntrunc++;
+  }
+  if (line.startsWith("flight log: end")) capEnd();
+  else if (cap.lines.length % 1000 === 0)
+    logline(`[... ${cap.lines.length} lines]`);
+}
+document.getElementById("btnFlog").onclick = capStart;
+document.getElementById("btnFlogView").onclick = () => window.open("flight_viewer.html?handoff=1", "_blank");
+
+/* ------------------------------------------------ FRAM backup / restore
+   bert, 2026-09-13: an 8 Mbit Infineon FRAM replaces the 4 Mbit Ramxeed
+   part; the tuning, the sensor calibration, the goal, the map and the
+   learned gate offsets have to cross over. The mouse's fram.dump prints
+   the 2 KB small-block window as 64 lines of 32 bytes plus a CRC line;
+   fram.stage / fram.commit take it back, staged and CRC-checked so a
+   dropped radio line is a refused commit, never a half-written block. */
+let framCap = null;   // {lines: {addr: hex}, timer}
+function framBackupStart() {
+  if (!link) { logline("[not connected]"); return; }
+  framCap = { lines: {}, timer: null };
+  framKick();
+  send("fram.dump");
+  logline("[FRAM backup: reading the small-block window]");
+}
+function framKick() {
+  if (!framCap) return;
+  if (framCap.timer) clearTimeout(framCap.timer);
+  framCap.timer = setTimeout(() => {
+    logline("[FRAM backup TIMED OUT: no end line -- not saved]");
+    framCap = null;
+  }, 8000);
+}
+function framLine(line) {
+  const f = line.split(",");
+  if (f[1] === "cfg" && f.length >= 4) {
+    framCap.lines[parseInt(f[2], 16)] = f[3].trim();
+    framKick();
+    return true;
+  }
+  if (f[1] === "end") {
+    clearTimeout(framCap.timer);
+    const nbytes = parseInt(f[3], 10), crc = f[4].trim();
+    const addrs = Object.keys(framCap.lines).map(Number).sort((a, b) => a - b);
+    let hex = "", ok = true, expect = 0;
+    for (const a of addrs) {
+      if (a !== expect || framCap.lines[a].length !== 64) ok = false;
+      hex += framCap.lines[a]; expect = a + 32;
+    }
+    if (!ok || hex.length !== nbytes * 2) {
+      logline(`[FRAM backup INCOMPLETE: ${addrs.length} lines, ${hex.length / 2} of ${nbytes} bytes -- not saved; try again]`);
+      framCap = null; return true;
+    }
+    const j = { format: "tw3-fram", version: 1,
+                date: new Date().toISOString(), region: "cfg", base: 0,
+                bytes: nbytes, crc32: crc, hex: hex };
+    const name = "tw3_fram_" + j.date.replace(/[:T]/g, "-").slice(0, 19) + ".fram.json";
+    const blob = new Blob([JSON.stringify(j, null, 1)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = name; a.click();
+    logline(`[FRAM backup saved: ${name} -- ${nbytes} bytes, CRC ${crc}]`);
+    framCap = null;
+    return true;
+  }
+  return false;
+}
+async function framRestore() {
+  if (!link) { logline("[not connected]"); return; }
+  const inp = document.createElement("input");
+  inp.type = "file"; inp.accept = ".json";
+  inp.onchange = async () => {
+    const f = inp.files[0]; if (!f) return;
+    let j;
+    try {
+      j = JSON.parse(await f.text());
+      if (j.format !== "tw3-fram" || j.region !== "cfg" || typeof j.hex !== "string" ||
+          j.hex.length !== j.bytes * 2) throw new Error("not a tw3 FRAM backup");
+    } catch (e) { logline("[FRAM restore: " + e.message + "]"); return; }
+    if (!confirm(`Write ${j.bytes} bytes (backup of ${j.date}, CRC ${j.crc32}) into the mouse's FRAM?\nThis replaces params, goal, sensor LUTs, map and goff table. Power cycle afterwards.`)) return;
+    logline(`[FRAM restore: sending ${j.bytes / 32} lines from ${f.name}]`);
+    await send("fram.clear"); await sleep(80);
+    for (let a = 0; a < j.bytes; a += 32) {
+      await link.write("fram.stage," + a.toString(16).toUpperCase().padStart(4, "0") + "," +
+                       j.hex.slice(2 * a, 2 * a + 64));
+      await sleep(25);
+    }
+    await sleep(100);
+    await send("fram.commit," + j.crc32);
+    logline("[FRAM restore: commit sent -- read the mouse's verdict above, then POWER CYCLE]");
+  };
+  inp.click();
+}
+document.getElementById("btnFramBackup").onclick = framBackupStart;
+document.getElementById("btnFramRestore").onclick = framRestore;
+
+function onLine(line) {
+  if (cap) { capLine(line); return; }
+  if (framCap && line.startsWith("FRAM,") && framLine(line)) return;
+  if (line.startsWith("PARAMDEF,")) { handleParamdef(line); return; }
+  if (line.startsWith("LAPREP,") || line.startsWith("LC,") ||
+      line.startsWith("LPARAM"))
+    handleLaprep(line);   // and fall through: the raw line is logged too
+  else if (line.startsWith("DGATE,") || line.startsWith("GOFFC,") ||
+           line.startsWith("REFLEX,") || line.startsWith("FRAME,") ||
+           line.startsWith("LSTEP") || line.startsWith("LS,")) {
+    // The lines that FOLLOW a lap's LAPREP,end -- the diagonal's per-post
+    // table, the corner table, the reflex / frame / lane-step summaries
+    // and the LS response table -- are filed with the lap; the on-disk
+    // record is rewritten shortly after they stop arriving (the LAPREP,end
+    // write happened before them).
+    lapRaw.push(line);
+    clearTimeout(lapRecLate);
+    lapRecLate = setTimeout(lapRecSave, 1500);
+  }
+  logline(line, /CLAMPED/.test(line) ? "clamp" : undefined);
+}
+
+/* ------------------------------------------------ corner scoreboard
+   The mouse prints a LAPREP block at every lap end (LapReport.h): a header,
+   one LC line per corner, "LAPREP,end". Corners accumulate here keyed by
+   (dir, cell, sweep, radius) -- the same identity the corner-type table
+   uses, since hand proved not removable by symmetry (runs 193-201). Stats
+   are Welford mean/sd of sweep err; a type ticks green at n>=5,
+   |mean|<=0.5, sd<=0.5. In-memory only, on purpose: the raw lines are in
+   every session log and every lap report survives in FRAM. */
+const board = {};       // key -> {n, mean, M2, worstYe, apex, gate, cell, lbl,
+                        //         dir, hist:[{seq,err,maxye,apex,corr,gate}]}
+const laps = [];        // lap-level series: {seq, dir, ms, dutypk, endye}
+let lapsSeen = 0;
+let curLap = null;      // {seq, dir, meta, corners:[]} while a block arrives
+let scoreView = "graphs";   // "graphs" | "table"
+let scoreMetric = "err";    // err | maxye | apex | corr
+function lapKv(s) {
+  const o = {};
+  for (const f of s.split(",")) {
+    const i = f.indexOf("=");
+    if (i > 0) o[f.slice(0, i)] = f.slice(i + 1);
+  }
+  return o;
+}
+/* -- lap recording: the raw LAPREP/LC lines, saved to a PC file --------------
+   The scoreboard's "gate (last)" column keeps only the newest lap; the raw
+   lines are the full per-lap record (every corr, every lap). "Record laps"
+   uses the File System Access API (Chrome/Edge -- same requirement as Web
+   Serial): pick a file ONCE, and every lap end rewrites it with everything
+   captured this session, so the on-disk file is always complete. Without
+   the API the button just downloads a snapshot. */
+const lapRaw = [];
+let lapFile = null;
+let lapRecLate = null;   // debounced rewrite for the lines after LAPREP,end
+async function lapRecSave() {
+  if (!lapFile) return;
+  try {
+    const w = await lapFile.createWritable();
+    await w.write(lapRaw.join("\n") + "\n");
+    await w.close();
+  } catch (e) {
+    logline("[lap record write failed: " + e + " -- recording stopped]");
+    lapFile = null;
+    document.getElementById("btnLapRec").textContent = "Record laps…";
+  }
+}
+document.getElementById("btnLapRec").onclick = async () => {
+  const name = "laps_" +
+    new Date().toISOString().replace(/[:T]/g, "-").slice(0, 19) + ".txt";
+  if (!window.showSaveFilePicker) {   // no FS API: one-off snapshot download
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(
+      new Blob([lapRaw.join("\n") + "\n"], { type: "text/plain" }));
+    a.download = name;
+    a.click();
+    logline(`[lap snapshot downloaded (${lapRaw.length} lines) -- this ` +
+            `browser cannot auto-record; use Chrome/Edge for that]`);
+    return;
+  }
+  try {
+    lapFile = await window.showSaveFilePicker({
+      suggestedName: name,
+      types: [{ description: "lap reports",
+                accept: { "text/plain": [".txt"] } }],
+    });
+    document.getElementById("btnLapRec").textContent = "Recording laps ●";
+    await lapRecSave();
+    logline("[recording lap reports -- the file updates itself at every " +
+            "lap end]");
+  } catch (e) { /* picker cancelled */ }
+};
+
+/* -- battery state of charge ------------------------------------------------
+   The lap header carries vbat in the mouse's own units: pack volts through
+   an UNCALIBRATED divider (VBAT_DIVIDER 3.0 nominal, Vbat.h), 50 mV steps.
+   bert, 2026-09-06: 2.20 is a freshly charged 2S pack, ~1.80 is "about its
+   lowest usable voltage" -- so the ratio to real volts is ~3.8 and the two
+   ends are 8.4 V and ~6.9 V. A 2S LiPo discharge curve between those ends,
+   in the reported units: */
+const BATT_CURVE = [[2.20, 100], [2.15, 90], [2.10, 78], [2.05, 65],
+                    [2.00, 50], [1.95, 36], [1.90, 22], [1.85, 10],
+                    [1.80, 0]];
+function battSoc(v) {
+  if (v >= BATT_CURVE[0][0]) return 100;
+  for (let i = 1; i < BATT_CURVE.length; i++) {
+    const [v1, p1] = BATT_CURVE[i - 1], [v0, p0] = BATT_CURVE[i];
+    if (v >= v0) return Math.round(p0 + (p1 - p0) * (v - v0) / (v1 - v0));
+  }
+  return 0;
+}
+function battUpdate(v, seq) {
+  const el = document.getElementById("batt");
+  if (!el || !(v > 0)) return;
+  const soc = battSoc(v);
+  document.getElementById("battFill").style.width = soc + "%";
+  document.getElementById("battText").textContent =
+    "batt " + v.toFixed(2) + " (" + soc + "%)" + (soc < 20 ? " LOW" : "") +
+    (seq ? " @lap " + seq : "");
+  el.className = soc < 20 ? "low" : soc < 45 ? "warn" : "";
+  if (soc < 20) logline("[battery " + v.toFixed(2) + " = ~" + soc +
+                        "% at lap " + seq + " -- charge before the next run]");
+}
+
+function handleLaprep(line) {
+  lapRaw.push(line);
+  if (line.startsWith("LPARAM")) return;  // settings-as-flown: file only
+  if (line === "LAPREP,end") {
+    if (!curLap) return;
+    // Aborted laps (abort=1 on the header) go to the FILE, never the
+    // scoreboard: their corners describe a crash, not the tune, and one
+    // spun corner would poison every Welford mean it touched.
+    if (!curLap.meta.abort) {
+      for (const c of curLap.corners) boardAdd(curLap.dir, curLap.seq, c);
+      ctypeAddLap(curLap.dir, curLap.seq, curLap.corners, currentRigName());
+    }
+    laps.push({ seq: curLap.seq, dir: curLap.dir,
+                aborted: !!curLap.meta.abort,
+                ms: parseInt(curLap.meta.ms, 10) || 0,
+                dutypk: parseFloat(curLap.meta.dutypk) || 0,
+                endye: parseFloat(curLap.meta.endye) || 0 });
+    lapsSeen++;
+    curLap = null;
+    scoreRender();
+    lapRecSave();   // keep the on-disk record current (no-op unless armed)
+    return;
+  }
+  if (line.startsWith("LAPREP,")) {
+    const m = lapKv(line.slice(7));
+    curLap = { dir: m.dir || "?", seq: parseInt(m.seq, 10) || lapsSeen + 1,
+               meta: m, corners: [] };
+    if (m.vbat) battUpdate(parseFloat(m.vbat), curLap.seq);
+    return;
+  }
+  if (curLap) curLap.corners.push(lapKv(line.slice(3)));
+}
+function primLabel(sweep, r) {
+  const left = sweep > 0;
+  if (Math.abs(sweep) === 180) return left ? "UL" : "UR";
+  return (left ? "L" : "R") + Math.abs(sweep) + (r != 84 ? "/R" + r : "");
+}
+function boardAdd(dir, seq, c) {
+  const sweep = parseInt(c.sweep, 10) || 0;
+  const key = dir + "|" + c.cell + "|" + sweep + "|" + c.r;
+  const err = parseFloat(c.err);
+  if (!board[key])
+    board[key] = { n: 0, mean: 0, M2: 0, worstYe: 0, apex: 255,
+                   gate: "", cell: c.cell, dir,
+                   lbl: primLabel(sweep, c.r), hist: [] };
+  const b = board[key];
+  b.n++;
+  const d = err - b.mean;          // Welford
+  b.mean += d / b.n;
+  b.M2 += d * (err - b.mean);
+  b.worstYe = Math.max(b.worstYe, parseFloat(c.maxye) || 0);
+  const apex = parseInt(c.apex, 10);
+  if (apex > 0 && apex < 255) b.apex = Math.min(b.apex, apex);
+  const locked = c.gate === "LOCK" || c.gate === "FRONT" || c.gate === "FUSED";
+  b.gate = c.gate + (locked ? " " + c.corr : "");
+  b.hist.push({ seq, err, maxye: parseFloat(c.maxye) || 0,
+                apex: apex > 0 && apex < 255 ? apex : null,
+                corr: locked ? parseFloat(c.corr) || 0 : null,
+                gate: c.gate });
+}
+/* ------------------------------------------------ corner TYPES
+   bert, 2026-09-10: "make a table of corner types in the gui so I can see
+   which we have tested against and which are unflown ... In a real maze
+   we won't be able to match all the corners on a path but we must
+   recognize enough to be able to allow datum info so we only fly blind
+   the few we don't know." The scoreboard above is keyed by CELL (this
+   rig); this table is keyed by TYPE -- what a corner IS regardless of
+   where it sits: kind, hand, radius, gate class. Kind is derived from
+   the LC line and its neighbours (a 45 after a 45-in or a V is a 45-out;
+   a 90 gated DIAG is a V; 180 is a U). Every non-aborted lap's corners
+   are folded in, deduplicated by (dir, seq, cell, sweep) so a laps file
+   can be imported twice without double counting. Persisted in
+   localStorage; Export/Import moves it as corner_types.json. */
+const CT_STORE = "tw3_ctypes_v1";
+let ctypes = {};        // key -> {kind,hand,r,gate,hist:[{id,rig,cell,err,wide,maxye,apex,corr,ds,seq}]}
+function currentRigName() {
+  const sel = document.getElementById("rigsel");
+  return sel && sel.value ? sel.value : "?";
+}
+function ctypeKindsOf(corners) {
+  // kinds in lap order; needs the sequence for 45-in / 45-out
+  const kinds = [];
+  let prev = "";
+  for (const c of corners) {
+    const sw = Math.abs(parseInt(c.sweep, 10) || 0);
+    let k;
+    if (sw === 180) k = "U";
+    else if (sw === 135) k = (prev === "45in" || prev === "V" || prev === "135in") ? "135out" : "135in";
+    else if (sw === 90) k = c.gate === "DIAG" ? "V" : "90";
+    else if (sw === 45) k = (prev === "45in" || prev === "V" || prev === "135in") ? "45out" : "45in";
+    else k = "?" + sw;
+    kinds.push(k);
+    prev = k;
+  }
+  return kinds;
+}
+function ctypeKey(kind, hand, r, gate) { return kind + "|" + hand + "|" + r + "|" + gate; }
+function ctypeAddLap(dir, seq, corners, rig) {
+  const kinds = ctypeKindsOf(corners);
+  corners.forEach((c, i) => {
+    const sweep = parseInt(c.sweep, 10) || 0;
+    if (!sweep) return;
+    const hand = sweep > 0 ? "L" : "R";
+    const kind = kinds[i];
+    const gate = (kind === "45in" || kind === "45out" || kind === "V") ? "DIAG" : (c.gate || "NONE");
+    const key = ctypeKey(kind, hand, c.r, gate);
+    const id = dir + "|" + seq + "|" + c.cell + "|" + sweep;
+    if (!ctypes[key]) ctypes[key] = { kind, hand, r: parseInt(c.r, 10) || 0, gate, hist: [] };
+    const t = ctypes[key];
+    if (t.hist.some(h => h.id === id)) return;
+    const lat = parseInt(c.lat, 10);
+    const apex = parseInt(c.apex, 10);
+    const locked = c.gate === "LOCK" || c.gate === "FRONT" || c.gate === "FUSED";
+    t.hist.push({
+      id, rig, cell: c.cell, seq,
+      err: parseFloat(c.err) || 0,
+      wide: (lat === 127 || isNaN(lat)) ? null : (hand === "R" ? lat : -lat),  // + = outside
+      maxye: parseFloat(c.maxye) || 0,
+      apex: apex > 0 && apex < 255 ? apex : null,
+      corr: locked ? (parseFloat(c.corr) || 0) : null,
+      ds: c.ds ? parseInt(c.ds, 10) : null,
+    });
+  });
+  ctypeSave();
+  ctypeRender();
+}
+function ctypeSave() {
+  try { localStorage.setItem(CT_STORE, JSON.stringify(ctypes)); } catch (e) {}
+}
+function ctypeLoad() {
+  try { const t = localStorage.getItem(CT_STORE); if (t) ctypes = JSON.parse(t) || {}; } catch (e) { ctypes = {}; }
+}
+// The universe the compiler can emit today (Route.h): the rows that show
+// as unflown until a lap carries them.
+function ctypeUniverse() {
+  const rows = [];
+  for (const hand of ["R", "L"]) {
+    for (const r of [84, 73, 60, 45])
+      for (const g of ["LOCK", "INHERIT", "NO_EDGE", "FRONT"]) rows.push({ kind: "90", hand, r, gate: g });
+    for (const g of ["LOCK", "INHERIT", "NO_EDGE"]) rows.push({ kind: "U", hand, r: 82, gate: g });
+    rows.push({ kind: "45in", hand, r: 84, gate: "DIAG" });
+    rows.push({ kind: "45out", hand, r: 84, gate: "DIAG" });
+    for (const r of [64, 72]) rows.push({ kind: "V", hand, r, gate: "DIAG" });
+    rows.push({ kind: "135", hand, r: 84, gate: "-", nocomp: true });
+  }
+  return rows;
+}
+function ctypeStats(t) {
+  const n = t.hist.length;
+  const mean = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
+  const errs = t.hist.map(h => h.err);
+  const me = mean(errs);
+  const sd = n > 1 ? Math.sqrt(errs.reduce((a, e) => a + (e - me) * (e - me), 0) / (n - 1)) : 0;
+  const wides = t.hist.map(h => h.wide).filter(v => v !== null);
+  const corrs = t.hist.map(h => h.corr).filter(v => v !== null);
+  const apexes = t.hist.map(h => h.apex).filter(v => v !== null);
+  const dss = t.hist.map(h => h.ds).filter(v => v !== null);
+  const mw = mean(wides);
+  const settled = n >= 5 && Math.abs(me) <= 1.0 && sd <= 1.0 && (mw === null || Math.abs(mw) <= 12);
+  const seen = {};
+  for (const h of t.hist) { const k = h.rig + " " + h.cell; seen[k] = (seen[k] || 0) + 1; }
+  return { n, me, sd, mw, mc: mean(corrs), maxye: mean(t.hist.map(h => h.maxye)),
+           apex: apexes.length ? Math.min(...apexes) : null, ds: mean(dss), settled,
+           seen: Object.entries(seen).map(([k, v]) => k + " ×" + v).join(", "),
+           last: Math.max(...t.hist.map(h => h.seq)) };
+}
+function ctypeLabel(t) {
+  const k = { "90": "90", "U": "U-turn", "45in": "45-in", "45out": "45-out", "V": "V", "135": "135" }[t.kind] || t.kind;
+  return `${k} ${t.hand} R${t.r} ${t.gate}`;
+}
+function ctypeRender() {
+  const tbl = document.getElementById("ctypetable");
+  if (!tbl) return;
+  const f1 = v => v === null || v === undefined || isNaN(v) ? "–" : v.toFixed(1);
+  const f0 = v => v === null || v === undefined || isNaN(v) ? "–" : v.toFixed(0);
+  const rows = [];
+  const flownKeys = new Set(Object.keys(ctypes));
+  for (const key of Object.keys(ctypes)) {
+    const t = ctypes[key], st = ctypeStats(t);
+    rows.push({ cls: st.settled ? "settled" : "flown", status: st.settled ? "✓ settled" : "● flown",
+                label: ctypeLabel(t), st, order: st.settled ? 0 : 1, kind: t.kind });
+  }
+  for (const u of ctypeUniverse()) {
+    const key = ctypeKey(u.kind, u.hand, u.r, u.gate);
+    if (flownKeys.has(key)) continue;
+    rows.push({ cls: u.nocomp ? "nocomp" : "unflown", status: u.nocomp ? "not compiled yet" : "○ unflown",
+                label: ctypeLabel(u), st: null, order: u.nocomp ? 3 : 2, kind: u.kind });
+  }
+  rows.sort((a, b) => a.order - b.order || a.label.localeCompare(b.label));
+  let h = `<tr><th>type</th><th>status</th><th>n</th><th>err mean</th><th>σ</th><th>exit wide</th><th>max|ye|</th><th>apex min</th><th>gate corr</th><th>approach</th><th>last</th><th style="text-align:left">seen at</th></tr>`;
+  for (const r of rows) {
+    const s = r.st;
+    h += `<tr class="${r.cls}"><td>${r.label}</td><td class="st">${r.status}</td>` +
+         (s ? `<td>${s.n}</td><td>${f1(s.me)}°</td><td>${f1(s.sd)}°</td><td>${f0(s.mw)} mm</td><td>${f1(s.maxye)}°</td><td>${f0(s.apex)}</td><td>${f1(s.mc)}</td><td>${f0(s.ds)}</td><td>${s.last}</td><td class="seen">${s.seen}</td>`
+            : `<td>0</td><td>–</td><td>–</td><td>–</td><td>–</td><td>–</td><td>–</td><td>–</td><td>–</td><td class="seen"></td>`) +
+         `</tr>`;
+  }
+  tbl.innerHTML = h;
+  const nf = Object.keys(ctypes).length, ns = Object.values(ctypes).filter(t => ctypeStats(t).settled).length;
+  const nu = rows.filter(r => r.cls === "unflown").length;
+  document.getElementById("ctypemeta").textContent = `${ns} settled · ${nf - ns} flown · ${nu} unflown`;
+}
+// Import: corner_types.json (merge) or laps_*.txt (parse and fold in).
+function ctypeIngestLapsText(text, rig) {
+  let cur = null, added = 0;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (line.startsWith("LAPREP,end")) {
+      if (cur && !cur.meta.abort) { ctypeAddLap(cur.dir, cur.seq, cur.corners, rig); added++; }
+      cur = null;
+    } else if (line.startsWith("LAPREP,")) {
+      const m = lapKv(line.slice(7));
+      cur = { dir: m.dir || "?", seq: parseInt(m.seq, 10) || 0, meta: m, corners: [] };
+    } else if (line.startsWith("LC,") && cur) cur.corners.push(lapKv(line.slice(3)));
+  }
+  return added;
+}
+document.getElementById("btnCtExport").onclick = () => {
+  const blob = new Blob([JSON.stringify({ format: "tw3-corner-types", version: 1,
+    saved: new Date().toISOString(), types: ctypes }, null, 1)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = "corner_types.json"; a.click();
+  logline(`[corner types exported: ${Object.keys(ctypes).length} types]`);
+};
+document.getElementById("btnCtImport").onclick = () => {
+  const inp = document.createElement("input");
+  inp.type = "file"; inp.multiple = true; inp.accept = ".json,.txt,.log";
+  inp.onchange = async () => {
+    for (const f of inp.files) {
+      const text = await f.text();
+      if (f.name.endsWith(".json")) {
+        try {
+          const j = JSON.parse(text);
+          if (j.format !== "tw3-corner-types") { logline(`[${f.name}: not a corner-types file]`); continue; }
+          let merged = 0;
+          for (const [key, t] of Object.entries(j.types || {})) {
+            if (!ctypes[key]) ctypes[key] = { kind: t.kind, hand: t.hand, r: t.r, gate: t.gate, hist: [] };
+            for (const hrec of t.hist || [])
+              if (!ctypes[key].hist.some(x => x.id === hrec.id)) { ctypes[key].hist.push(hrec); merged++; }
+          }
+          ctypeSave(); ctypeRender();
+          logline(`[${f.name}: ${merged} corner records merged]`);
+        } catch (e) { logline(`[${f.name}: ${e}]`); }
+      } else {
+        const rig = prompt(`Rig name for the laps in ${f.name} (the corner types are maze-independent; this only labels "seen at")`, currentRigName()) || "import";
+        const n = ctypeIngestLapsText(text, rig);
+        logline(`[${f.name}: ${n} laps folded into the corner types]`);
+      }
+    }
+  };
+  inp.click();
+};
+document.getElementById("btnCtClear").onclick = () => {
+  if (!confirm("Forget the corner-type table in this browser? Export first if you want to keep it.")) return;
+  ctypes = {}; ctypeSave(); ctypeRender();
+};
+ctypeLoad();
+ctypeRender();
+
+/* -- graphs: small multiples, one single-series trend panel per corner type.
+   Identity lives in the panel title (no legend needed for one series); the
+   y-scale for the chosen metric is SHARED across every panel so panels
+   compare honestly; a lone freak value (one 16 deg spike in 10 laps) would
+   flatten every panel, so the scale caps at the 2nd-largest magnitude when
+   the largest is >2.5x it, and capped points draw as edge triangles with
+   the true value in their tooltip. Hover any lap-slot for the numbers.
+   Non-LOCK gate laps draw hollow -- shape, not another color. */
+const METRICS = {
+  err:   { unit: "°", band: 0.5, sym: true,
+           get: h => h.err, name: "sweep err" },
+  maxye: { unit: "°", band: 0, sym: false,
+           get: h => h.maxye, name: "max|ye|" },
+  apex:  { unit: "mm", band: 0, sym: false,
+           get: h => h.apex, name: "apex" },
+  corr:  { unit: "mm", band: 0, sym: true,
+           get: h => h.corr, name: "gate corr" },
+};
+const S_HUE = "#61afef", S_BAND = "#7ec87e", S_GRID = "#2a2e35",
+      S_SURF = "#101216", S_TXT = "#d6d8dc", S_MUT = "#4b5563";
+function scaleCap(vals) {           // robust shared max (see comment above)
+  const m = vals.map(Math.abs).sort((a, b) => b - a);
+  if (m.length > 2 && m[0] > 2.5 * m[1] && m[1] > 0) return m[1] * 1.25;
+  return m[0] || 1;
+}
+function panelSvg(title, sub, hist, M, yMax, yMin, seqs) {
+  const W = 300, H = 128, X0 = 16, X1 = 290, Y0 = 24, Y1 = 102;
+  const sx = s => seqs.length < 2 ? (X0 + X1) / 2
+    : X0 + (X1 - X0) * (seqs.indexOf(s) / (seqs.length - 1));
+  const sy = v => Y1 - (Y1 - Y0) * ((v - yMin) / (yMax - yMin || 1));
+  let s = `<svg width="${W}" height="${H}" style="background:#15181d;` +
+          `border-radius:4px">`;
+  s += `<text x="8" y="15" font-size="12" fill="${S_TXT}">${title}` +
+       `</text><text x="${W - 8}" y="15" font-size="10" fill="${S_MUT}" ` +
+       `text-anchor="end">${sub}</text>`;
+  if (M.band > 0 && yMin < 0) {     // the tick-green target band (err only)
+    const yA = sy(Math.min(M.band, yMax)), yB = sy(Math.max(-M.band, yMin));
+    s += `<rect x="${X0}" y="${yA}" width="${X1 - X0}" ` +
+         `height="${yB - yA}" fill="${S_BAND}" opacity="0.1"/>`;
+  }
+  if (yMin < 0 && yMax > 0)         // zero hairline
+    s += `<line x1="${X0}" y1="${sy(0)}" x2="${X1}" y2="${sy(0)}" ` +
+         `stroke="${S_GRID}" stroke-width="1"/>`;
+  // y extremes as ticks (they carry what direct labels don't)
+  s += `<text x="${X0 - 2}" y="${Y0 + 3}" font-size="9" fill="${S_MUT}" ` +
+       `text-anchor="end">${+yMax.toFixed(1)}</text>` +
+       `<text x="${X0 - 2}" y="${Y1 + 3}" font-size="9" fill="${S_MUT}" ` +
+       `text-anchor="end">${+yMin.toFixed(1)}</text>`;
+  const pts = hist.filter(h => M.get(h) !== null && M.get(h) !== undefined);
+  const poly = pts.map(h => {
+    const v = Math.max(yMin, Math.min(yMax, M.get(h)));
+    return sx(h.seq) + "," + sy(v);
+  }).join(" ");
+  if (pts.length > 1)
+    s += `<polyline points="${poly}" fill="none" stroke="${S_HUE}" ` +
+         `stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  const slot = seqs.length > 1 ? (X1 - X0) / (seqs.length - 1) : X1 - X0;
+  for (const h of pts) {
+    const v = M.get(h), clip = v > yMax || v < yMin;
+    const x = sx(h.seq), y = sy(Math.max(yMin, Math.min(yMax, v)));
+    const lock = h.gate === "LOCK" || h.gate === "FRONT" || h.gate === "FUSED";
+    s += `<g><circle cx="${x}" cy="${y}" r="6" fill="${S_SURF}"/>`;   // ring
+    if (clip)
+      s += `<path d="M${x - 4},${y + (v > yMax ? 4 : -4)} h8 l-4,` +
+           `${v > yMax ? -7 : 7} z" fill="${S_HUE}"/>`;
+    else if (lock)
+      s += `<circle cx="${x}" cy="${y}" r="4" fill="${S_HUE}"/>`;
+    else
+      s += `<circle cx="${x}" cy="${y}" r="4" fill="${S_SURF}" ` +
+           `stroke="${S_HUE}" stroke-width="2"/>`;
+    s += `<rect x="${x - slot / 2}" y="${Y0 - 6}" width="${slot}" ` +
+         `height="${Y1 - Y0 + 12}" fill="transparent">` +
+         `<title>lap ${h.seq} · ${M.name} ` +
+         `${v >= 0 ? "+" : ""}${(+v).toFixed(2)}${M.unit}` +
+         `${/^(LOCK|NO_EDGE|SKIP_LAT|INHERIT|NONE)$/.test(h.gate)
+             ? " · gate " + h.gate + (h.corr !== null
+                 ? ` ${h.corr >= 0 ? "+" : ""}${h.corr.toFixed(1)}mm` : "")
+             : " · " + h.gate}</title></rect></g>`;
+  }
+  // x extent labels: first and last lap seq
+  if (seqs.length) {
+    s += `<text x="${X0}" y="${H - 5}" font-size="9" fill="${S_MUT}">` +
+         `lap ${seqs[0]}</text>`;
+    if (seqs.length > 1)
+      s += `<text x="${X1}" y="${H - 5}" font-size="9" fill="${S_MUT}" ` +
+           `text-anchor="end">${seqs[seqs.length - 1]}</text>`;
+  }
+  return s + "</svg>";
+}
+function graphsRender() {
+  const g = document.getElementById("scoregraphs");
+  const M = METRICS[scoreMetric];
+  const keys = Object.keys(board).sort();
+  // one scale across every panel, from every plotted value
+  const all = [];
+  for (const k of keys)
+    for (const h of board[k].hist) {
+      const v = M.get(h);
+      if (v !== null && v !== undefined) all.push(v);
+    }
+  if (!all.length) { g.innerHTML = ""; return; }
+  let yMax, yMin;
+  if (M.sym) { yMax = scaleCap(all); yMin = -yMax; }
+  else if (scoreMetric === "apex") {
+    yMax = Math.max(...all) + 5; yMin = Math.max(0, Math.min(...all) - 5);
+  } else { yMax = scaleCap(all); yMin = 0; }
+  let html = "";
+  // Group by the directions actually FLOWN (route.dir=a laps report dir=a
+  // -- hardcoding n/e here is what once hid every corner panel).
+  // A two-leg run (no loop through the goal: the mouse stops at the goal,
+  // turns in place, flies home) files one report per leg: o = out (S->G),
+  // h = home (G->S).
+  const DIR_LABEL = { n: "CW · launch N", e: "CCW · launch E",
+                      a: "auto (tie-break · CW on CAL-6)",
+                      o: "OUT leg · S→G (two-leg run)",
+                      h: "HOME leg · G→S (two-leg run)" };
+  const dirs = [...new Set(keys.map(k => board[k].dir))]
+    .sort((x, y) => "neaoh".indexOf(x) - "neaoh".indexOf(y));
+  for (const dir of dirs) {
+    const dk = keys.filter(k => board[k].dir === dir);
+    if (!dk.length) continue;
+    html += `<div class="dirhead">${DIR_LABEL[dir] || "dir " + dir}</div>`;
+    for (const k of dk) {
+      const b = board[k];
+      const seqs = b.hist.map(h => h.seq);
+      html += panelSvg(`(${b.cell.replace(":", ",")}) ${b.lbl}`,
+                       `n=${b.n}`, b.hist, M, yMax, yMin, seqs);
+    }
+  }
+  g.innerHTML = html;
+}
+function lapStripRender() {
+  const g = document.getElementById("lapstrip");
+  if (!laps.length) { g.innerHTML = ""; return; }
+  const seqs = laps.map(l => l.seq);
+  const mk = (title, unit, get, sym) => {
+    const hist = laps.map(l => ({ seq: l.seq, err: get(l),
+                                  gate: l.dir === "n" ? "LOCK" : "dir e",
+                                  corr: null, maxye: 0, apex: null }));
+    const vals = hist.map(h => h.err);
+    let hi, lo;
+    if (sym) { hi = scaleCap(vals); lo = -hi; }
+    else { hi = Math.max(...vals); lo = Math.min(...vals);
+           const pad = (hi - lo || 1) * 0.15; hi += pad; lo -= pad; }
+    return panelSvg(title, "solid CW · hollow CCW", hist,
+                    { unit, band: 0, sym, get: h => h.err, name: title },
+                    hi, lo, seqs);
+  };
+  g.innerHTML =
+    mk("lap time s", "s", l => l.ms / 1000, false) +
+    mk("duty peak", "", l => l.dutypk, false) +
+    mk("end yaw resid", "°", l => l.endye, true);
+}
+function scoreRender() {
+  boardRender();
+  graphsRender();
+  lapStripRender();
+  const graphs = scoreView === "graphs";
+  document.getElementById("scoregraphs").hidden = !graphs;
+  document.getElementById("lapstrip").hidden = !graphs;
+  document.getElementById("scoretable").hidden = graphs;
+}
+document.getElementById("btnVGraphs").onclick = () => {
+  scoreView = "graphs";
+  document.getElementById("btnVGraphs").classList.add("on");
+  document.getElementById("btnVTable").classList.remove("on");
+  scoreRender();
+};
+document.getElementById("btnVTable").onclick = () => {
+  scoreView = "table";
+  document.getElementById("btnVTable").classList.add("on");
+  document.getElementById("btnVGraphs").classList.remove("on");
+  scoreRender();
+};
+for (const btn of document.querySelectorAll(".metbtn"))
+  btn.onclick = () => {
+    scoreMetric = btn.dataset.m;
+    for (const o of document.querySelectorAll(".metbtn"))
+      o.classList.toggle("on", o === btn);
+    scoreRender();
+  };
+
+function boardRender() {
+  const t = document.getElementById("scoretable");
+  let html = "<tr><th>corner</th><th>dir</th><th>n</th>" +
+    "<th>err mean&plusmn;&sigma;</th><th>max|ye|</th><th>apex</th>" +
+    "<th>gate (last)</th><th></th></tr>";
+  for (const key of Object.keys(board).sort()) {
+    const b = board[key];
+    const sd = b.n > 1 ? Math.sqrt(b.M2 / (b.n - 1)) : 0;
+    const tick = b.n >= 5 && Math.abs(b.mean) <= 0.5 && sd <= 0.5;
+    html += `<tr><td>(${b.cell.replace(":", ",")}) ${b.lbl}</td>` +
+      `<td>${b.dir}</td><td>${b.n}</td>` +
+      `<td>${b.mean >= 0 ? "+" : ""}${b.mean.toFixed(2)}&deg; ` +
+      `&plusmn;${sd.toFixed(2)}</td>` +
+      `<td>${b.worstYe.toFixed(1)}&deg;</td>` +
+      `<td>${b.apex === 255 ? "&mdash;" : b.apex + "mm"}</td>` +
+      `<td>${b.gate}</td>` +
+      `<td style="color:${tick ? "#7ec87e" : "#4b5563"}">` +
+      `${tick ? "&#10003;" : "&middot;"}</td></tr>`;
+  }
+  t.innerHTML = html;
+  document.getElementById("scoremeta").textContent =
+    `(${lapsSeen} lap${lapsSeen === 1 ? "" : "s"}, ` +
+    `${Object.keys(board).length} corner types)`;
+}
+document.getElementById("scoreclear").onclick = (e) => {
+  e.preventDefault();
+  for (const k of Object.keys(board)) delete board[k];
+  laps.length = 0;
+  lapsSeen = 0;
+  scoreRender();
+};
+function handleParamdef(line) {
+  const p = line.split(",");
+  if (p.length === 2 && p[1] === "end") {
+    document.getElementById("pcount").textContent =
+      "(" + Object.keys(rows).length + ")";
+    return;
+  }
+  if (p.length !== 5) { logline(line); return; }
+  const [, name, val, lo, hi] = p;
+  if (!rows[name]) {
+    const tr = document.createElement("tr");
+    const td0 = document.createElement("td"); td0.textContent = name;
+    td0.className = "pname";
+    td0.title = PARAM_HELP[name] ||
+      "(no description yet -- add it to PARAM_HELP in tune_gui.html " +
+      "when appending a parameter)";
+    const td1 = document.createElement("td");
+    const inp = document.createElement("input");
+    inp.addEventListener("input", () => inp.classList.add("dirty"));
+    inp.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        send(name + "=" + inp.value.trim());
+        inp.classList.remove("dirty");
+      }
+    });
+    td1.appendChild(inp);
+    const td2 = document.createElement("td"); td2.className = "range";
+    td2.textContent = lo + " .. " + hi;
+    tr.append(td0, td1, td2);
+    document.getElementById("ptable").appendChild(tr);
+    rows[name] = inp;
+  }
+  rows[name].value = val;
+  rows[name].classList.remove("dirty");
+}
+
+/* ------------------------------------------------ connect */
+document.getElementById("btnConnect").onclick = async () => {
+  if (!("serial" in navigator)) {
+    logline("Web Serial not available -- use Chrome or Edge, " +
+            "or tools/tune_gui.py");
+    return;
+  }
+  try {
+    link = serialTransport;
+    await link.start(onLine);
+    document.getElementById("status").textContent = link.label;
+    setTimeout(() => send("param.dump"), 300);
+  } catch (e) { logline("[connect failed: " + e + "]"); link = null; }
+};
+
+/* ------------------------------------------------ map push
+   Convert the selected rig to the full 16x16 wall bitmaps and stage them on
+   the mouse with the mz.* commands (34 rows -> goal -> mz.commit). The rig
+   occupies cells (0..5, 0..5); EVERYTHING else is walled solid, so the
+   flood can never leave the rig and the pushed map is safe even if a wall
+   is missing from the physical build. Lines are paced for the radio. */
+const GOALS = { "CAL-6 rev A": [5, 5], "CAL-6 rev C": [5, 4],
+                "D6 diagonal": [5, 5],
+                "D7 mixed": [5, 5],
+                "D8 V": [1, 5],
+                "D9 zigzag": [5, 5] };
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+/* Wall planes in the mouse's mz.* format, from a rig's wall list. v[x] bit y,
+   h[y] bit x; everything outside the 6x6 stays solid. Shared by the push and
+   by the loop tracer that draws the direction arrows. */
+function rigPlanes(rig) {
+  const wallSet = new Set(rig.walls.map(w => w.join(",")));
+  const v = new Array(17).fill(0xFFFF), h = new Array(17).fill(0xFFFF);
+  for (let x = 0; x < 6; x++) for (let y = 0; y < 6; y++) {
+    // east passage (x,y)<->(x+1,y): open iff no vertical wall at plane x+1
+    if (x + 1 < 6 && !wallSet.has([x + 1, y, x + 1, y + 1].join(",")))
+      v[x + 1] &= ~(1 << y);
+    // north passage (x,y)<->(x,y+1): open iff no horizontal wall at plane y+1
+    if (y + 1 < 6 && !wallSet.has([x, y + 1, x + 1, y + 1].join(",")))
+      h[y + 1] &= ~(1 << x);
+  }
+  return { v, h };
+}
+document.getElementById("btnPush").onclick = async () => {
+  if (!link) { logline("[not connected]"); return; }
+  const name = document.getElementById("rigsel").value;
+  const rig = RIGS[name];
+  const { v, h } = rigPlanes(rig);
+  logline("[pushing " + name + " -- 34 rows + goal + commit]");
+  await send("mz.clear"); await sleep(60);
+  for (let i = 0; i <= 16; i++) {
+    await link.write("mz.v=" + i + "," +
+                     v[i].toString(16).padStart(4, "0"));
+    await sleep(30);
+  }
+  for (let i = 0; i <= 16; i++) {
+    await link.write("mz.h=" + i + "," +
+                     h[i].toString(16).padStart(4, "0"));
+    await sleep(30);
+  }
+  const g = GOALS[name] || [5, 5];
+  await send("goal=" + g[0] + "," + g[1]); await sleep(120);
+  await send("mz.commit");
+};
+
+/* ------------------------------------------------ route direction */
+/* Mirrors firmware route.dir: 'n' = launch north, west arm out (CW on the
+   CAL rigs); 'e' = launch east, east arm out (CCW). The mouse re-orients
+   itself when parked at the start cell, or prints how to place it. */
+let routeDir = "n";
+function setDir(d) {
+  routeDir = d;
+  document.getElementById("btnDirN").classList.toggle("on", d === "n");
+  document.getElementById("btnDirE").classList.toggle("on", d === "e");
+  if (link) send("route.dir=" + d);
+  drawRig(document.getElementById("rigsel").value);
+}
+document.getElementById("btnDirN").onclick = () => setDir("n");
+document.getElementById("btnDirE").onclick = () => setDir("e");
+
+/* Trace the corridor loop from (0,0) leaving in `dir`, walking cell to cell
+   through openings (never straight back). Returns the cell sequence, ending
+   back at (0,0) for a true circuit, or null if the walk dies or leaves the
+   rig's corridor set. Drives the arrows only -- the mouse floods for itself. */
+// THE CENTRE LINE OF A DIAGONAL CORRIDOR IS NOT CENTRE-TO-CENTRE.
+// It runs through the APERTURE midpoints of the staircase of cells. The
+// centre-to-centre line is parallel to it but offset half a cell, which
+// lands it exactly on the corner posts -- on D6 that put the dashed path
+// straight through the posts at (3,1), (4,2), (5,3) and through the ends of
+// the walls that meet there (bert, 2026-08-31: "the diagonal dotted path
+// intersection walls"). Walk the staircase and draw the gaps instead.
+// A rig may carry one diagonal (`diagonal: [a,b]`, the hand-built rigs) or
+// several (`diagonals: [[a,b],...]`, the maze creator's derived rigs).
+function rigDiagonals(rig) { return rig.diagonals || (rig.diagonal ? [rig.diagonal] : []); }
+function diagMidline(rig, pair) {
+  if (!pair) return null;
+  const [a, b] = pair;
+  const open = new Set(rig.cells.map(c => c[0] + "," + c[1]));
+  const wall = new Set(rig.walls.map(w => w.join(",")));
+  const linked = (x, y, nx, ny) => {
+    if (!open.has(nx + "," + ny)) return false;
+    if (nx === x + 1) return !wall.has([x + 1, y, x + 1, y + 1].join(","));
+    if (nx === x - 1) return !wall.has([x, y, x, y + 1].join(","));
+    if (ny === y + 1) return !wall.has([x, y + 1, x + 1, y + 1].join(","));
+    return !wall.has([x, y, x + 1, y].join(","));
+  };
+  const key = c => c[0] + "," + c[1];
+  const prev = new Map([[key(a), null]]);
+  const q = [a];
+  while (q.length) {
+    const [x, y] = q.shift();
+    if (x === b[0] && y === b[1]) break;
+    for (const n of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]]) {
+      if (prev.has(key(n)) || !linked(x, y, n[0], n[1])) continue;
+      prev.set(key(n), [x, y]);
+      q.push(n);
+    }
+  }
+  if (!prev.has(key(b))) return null;
+  const cells = [];
+  for (let c = b; c; c = prev.get(key(c))) cells.unshift(c);
+  const pts = [];   // POST space, so a .5 is a cell centre line
+  for (let i = 0; i + 1 < cells.length; i++) {
+    const [x, y] = cells[i], [nx, ny] = cells[i + 1];
+    pts.push(nx === x ? [x + 0.5, Math.max(y, ny)]
+                      : [Math.max(x, nx), y + 0.5]);
+  }
+  if (pts.length < 2) return null;
+  return { pts, cells, inner: new Set(cells.slice(1, -1).map(key)) };
+}
+/* Cell-centre polyline for a lap, with every diagonal leg expanded onto its
+   corridor centre line. `seq` may jump endpoint to endpoint (a stored path)
+   or walk the staircase cell by cell (a traced loop) -- both are folded. */
+function lapPoints(rig, seq) {
+  const key = c => c[0] + "," + c[1];
+  const diags = rigDiagonals(rig).map(d => ({ d, m: diagMidline(rig, d) })).filter(x => x.m);
+  const P = [];
+  for (let i = 0; i < seq.length; i++) {
+    P.push([seq[i][0] + 0.5, seq[i][1] + 0.5]);
+    const n = seq[i + 1];
+    if (!n) continue;
+    for (const { d, m } of diags) {
+      const fwd = key(seq[i]) === key(d[0]), rev = key(seq[i]) === key(d[1]);
+      if (!fwd && !rev) continue;
+      const far = fwd ? d[1] : d[0];
+      let j = -1;
+      if (key(n) === key(far)) j = i + 1;
+      else if (m.inner.has(key(n)))
+        for (let k = i + 2; k < seq.length && k <= i + m.cells.length; k++)
+          if (key(seq[k]) === key(far)) { j = k; break; }
+      if (j < 0) continue;
+      for (const u of (fwd ? m.pts : m.pts.slice().reverse())) P.push(u);
+      i = j - 1;                       // the loop's i++ lands on the far endpoint
+      break;
+    }
+  }
+  return { P, mids: diags.map(x => x.m.pts) };
+}
+
+function traceLoop(rig, dir) {
+  const { v, h } = rigPlanes(rig);
+  const openN = (x, y) => y + 1 < 6 && !((h[y + 1] >> x) & 1);
+  const openE = (x, y) => x + 1 < 6 && !((v[x + 1] >> y) & 1);
+  const exits = (x, y) => {
+    const e = [];
+    if (openN(x, y)) e.push([x, y + 1]);
+    if (openE(x, y)) e.push([x + 1, y]);
+    if (y > 0 && openN(x, y - 1)) e.push([x, y - 1]);
+    if (x > 0 && openE(x - 1, y)) e.push([x - 1, y]);
+    return e;
+  };
+  let prev = [0, 0];
+  let cur = dir === "e" ? [1, 0] : [0, 1];
+  if (dir === "e" ? !openE(0, 0) : !openN(0, 0)) return null;
+  const seq = [[0, 0], cur];
+  for (let i = 0; i < 40; i++) {
+    if (cur[0] === 0 && cur[1] === 0) return seq;      // home: a circuit
+    let nxt = exits(cur[0], cur[1])
+      .filter(c => !(c[0] === prev[0] && c[1] === prev[1]));
+    if (nxt.length > 1)   // a dead-end stub off the corridor (rev C's
+                          // alcove) is not the lap -- walk past it
+      nxt = nxt.filter(c => exits(c[0], c[1]).length > 1);
+    if (nxt.length !== 1) return null;                 // real junction
+    prev = cur; cur = nxt[0]; seq.push(cur);
+  }
+  return null;
+}
+
+/* Signed area of a closed cell sequence (shoelace, maze frame, y up):
+   positive = counter-clockwise. Rotation is COMPUTED from the walls, never
+   asserted -- a mirrored rig flown "launch N" is CCW, and the display must
+   say so rather than parrot the toggle. */
+function rotOf(seq) {
+  let a = 0;
+  for (let i = 0; i + 1 < seq.length; i++)
+    a += seq[i][0] * seq[i + 1][1] - seq[i + 1][0] * seq[i][1];
+  return a;
+}
+
+/* ------------------------------------------------ mirror rig */
+/* Left-right mirror: cell (x,y) -> (5-x,y), wall x -> 6-x, hands flip.
+   The mirrored rig is a NEW PHYSICAL BUILD (walls move) -- the button adds
+   it to the rig list so the build list, the push and the arrows all just
+   work on it. Mirroring the mirror returns to the original. */
+const HAND_FLIP = { R: "L", L: "R", UR: "UL", UL: "UR", R73: "L73", "135R": "135L", "135L": "135R",
+                    L73: "R73", "45L": "45R", "45R": "45L",
+                    "V L": "V R", "V R": "V L", R60: "L60", L60: "R60", R45: "L45", L45: "R45" };
+function mirrorRig(r) {
+  const mc = p => [5 - p[0], p[1]];
+  const mw = w => {
+    let a = [6 - w[0], w[1]], b = [6 - w[2], w[3]];
+    if (a[0] > b[0] || (a[0] === b[0] && a[1] > b[1])) { const t = a; a = b; b = t; }
+    return [a[0], a[1], b[0], b[1]];
+  };
+  const out = {
+    cells: r.cells.map(mc),
+    open_extra: r.open_extra.map(mc),
+    walls: r.walls.map(mw),
+    path: r.path.map(mc),
+    turns: r.turns.map(t => ({ x: 5 - t.x, y: t.y, t: HAND_FLIP[t.t] || t.t })),
+  };
+  if (r.diagonal) out.diagonal = r.diagonal.map(mc);
+  if (r.diagonals) out.diagonals = r.diagonals.map(d => d.map(mc));
+  if (r.goal) out.goal = mc(r.goal);
+  return out;
+}
+document.getElementById("btnMirror").onclick = () => {
+  const selEl = document.getElementById("rigsel");
+  const name = selEl.value;
+  const mn = name.endsWith(" (M)") ? name.slice(0, -4) : name + " (M)";
+  if (!RIGS[mn]) {
+    RIGS[mn] = mirrorRig(RIGS[name]);
+    const g = GOALS[name] || [5, 5];
+    GOALS[mn] = [5 - g[0], g[1]];
+    const o = document.createElement("option");
+    o.textContent = mn;
+    selEl.appendChild(o);
+  }
+  selEl.value = mn;
+  drawRig(mn);
+};
+
+/* ------------------------------------------------ maze renderer */
+const C = 64, PAD = 26, POST = 5;   // px per cell, padding, post half
+function drawRig(name) {
+  const rig = RIGS[name];
+  const W = 6, sz = W * C + 2 * PAD;
+  const X = (gx) => PAD + gx * C;
+  const Y = (gy) => PAD + (W - gy) * C;   // grid y up -> screen y down
+  let s = `<svg width="${sz}" height="${sz}" viewBox="0 0 ${sz} ${sz}">`;
+  s += `<rect width="${sz}" height="${sz}" fill="#101216"/>`;
+  // sealed cells
+  const open = new Set(rig.cells.concat(rig.open_extra).map(c => c[0] + "," + c[1]));
+  for (let x = 0; x < W; x++) for (let y = 0; y < W; y++) {
+    if (!open.has(x + "," + y))
+      s += `<rect x="${X(x)}" y="${Y(y + 1)}" width="${C}" height="${C}"
+            fill="#1a1d22"/>`;
+  }
+  for (const c of rig.open_extra)
+    s += `<rect x="${X(c[0])}" y="${Y(c[1] + 1)}" width="${C}" height="${C}"
+          fill="#20262e"/>` +
+         `<text x="${X(c[0]) + C / 2}" y="${Y(c[1] + 1) + C / 2 + 4}"
+          fill="#6b7280" font-size="11" text-anchor="middle">alcove</text>`;
+  // flown path, in the direction route.dir will fly it. traceLoop follows
+  // the actual walls from (0,0); rigs that are not simple circuits (D6)
+  // fall back to their stored path with no direction claim.
+  const loop = traceLoop(rig, routeDir);
+  const seq = loop || rig.path;
+  // Cell centres in POST space, with each diagonal leg expanded onto its own
+  // corridor centre line instead of cut straight across the posts.
+  const { P, mids } = lapPoints(rig, seq);
+  const pts = P.map(u => X(u[0]) + "," + Y(u[1])).join(" ");
+  s += `<polyline points="${pts}" fill="none" stroke="#3f5e3f"
+        stroke-width="6" stroke-linejoin="round" opacity="0.9"/>`;
+  if (loop) {
+    // direction chevrons every few cells, pointing along the travel
+    for (let i = 1; i < seq.length - 1; i += 3) {
+      const [ax, ay] = seq[i], [bx, by] = seq[i + 1];
+      const mx = (X(ax) + X(bx)) / 2 + C / 2,
+            my = (Y(ay + 1) + Y(by + 1)) / 2 + C / 2;
+      const ang = Math.atan2(Y(by + 1) - Y(ay + 1), X(bx) - X(ax)) * 180 / Math.PI;
+      s += `<polygon points="8,0 -5,6 -5,-6" fill="#7ec87e"
+            transform="translate(${mx},${my}) rotate(${ang})"/>`;
+    }
+  }
+  for (const mid of mids)
+    s += `<polyline points="${mid.map(u => X(u[0]) + "," + Y(u[1])).join(" ")}"
+          fill="none" stroke="#c678dd" stroke-width="4"
+          stroke-dasharray="8 5"/>`;
+  // walls + posts
+  for (const w of rig.walls)
+    s += `<line x1="${X(w[0])}" y1="${Y(w[1])}" x2="${X(w[2])}" y2="${Y(w[3])}"
+          stroke="#d9534f" stroke-width="6" stroke-linecap="round"/>`;
+  for (let x = 0; x <= W; x++) for (let y = 0; y <= W; y++)
+    s += `<rect x="${X(x) - POST}" y="${Y(y) - POST}" width="${2 * POST}"
+          height="${2 * POST}" fill="#e8eaee"/>`;
+  // turn markers. The stored labels describe the STORED path direction; when
+  // the displayed lap runs the circuit the other way round, every hand
+  // flips, so the labels flip with it (a UR flown backwards is a UL).
+  const flip = loop && Math.sign(rotOf(loop)) !== Math.sign(rotOf(rig.path));
+  for (const t of rig.turns) {
+    const lbl = flip ? (HAND_FLIP[t.t] || t.t) : t.t;
+    const col = lbl.startsWith("U") ? "#e06c75"
+              : (lbl.includes("45") || lbl.includes("135")) ? "#c678dd" : "#61afef";
+    const cx = X(t.x) + C / 2, cy = Y(t.y + 1) + C / 2;
+    s += `<circle cx="${cx}" cy="${cy}" r="11" fill="${col}"/>` +
+         `<text x="${cx}" y="${cy + 3.5}" font-size="9" text-anchor="middle"
+          fill="#101216" font-weight="bold">${lbl}</text>`;
+  }
+  // start cell: launch heading follows route.dir
+  const east = routeDir === "e";
+  s += `<text x="${X(0) + C / 2}" y="${Y(1) + C - 8}" fill="#8a8f99"
+        font-size="10" text-anchor="middle">START (0,0) ${east ? "E" : "N"}</text>`;
+  {   // launch arrow out of the start cell
+    const cx0 = X(0) + C / 2, cy0 = Y(1) + C / 2;
+    const dx = east ? 22 : 0, dy = east ? 0 : -22;
+    s += `<line x1="${cx0}" y1="${cy0}" x2="${cx0 + dx}" y2="${cy0 + dy}"
+          stroke="#e5c07b" stroke-width="4"/>` +
+         `<polygon points="9,0 -5,6 -5,-6" fill="#e5c07b"
+          transform="translate(${cx0 + dx},${cy0 + dy}) rotate(${east ? 0 : -90})"/>`;
+  }
+  // direction caption -- rotation computed from the traced loop, so it
+  // stays truthful on mirrored rigs
+  if (loop) {
+    const ccw = rotOf(loop) > 0;
+    s += `<text x="${sz / 2}" y="${16}" fill="#7ec87e" font-size="11"
+          text-anchor="middle">lap: ${ccw ? "CCW" : "CW"} -- launch ${
+          east ? "EAST" : "NORTH"}, mostly ${ccw ? "left" : "right"}-handers</text>`;
+  } else {
+    s += `<text x="${sz / 2}" y="${16}" fill="#8a8f99" font-size="11"
+          text-anchor="middle">stored path shown (not a simple circuit --
+          direction toggle has no effect here)</text>`;
+  }
+  // coordinates
+  for (let x = 0; x < W; x++)
+    s += `<text x="${X(x) + C / 2}" y="${sz - 6}" fill="#4b5563"
+          font-size="10" text-anchor="middle">x=${x}</text>`;
+  for (let y = 0; y < W; y++)
+    s += `<text x="${10}" y="${Y(y + 1) + C / 2 + 3}" fill="#4b5563"
+          font-size="10" text-anchor="middle">${y}</text>`;
+  s += "</svg>";
+  document.getElementById("mazewrap").innerHTML = s;
+  // build list: interior walls only (the boundary is the rig frame)
+  const interior = rig.walls.filter(w =>
+    !(w[0] === w[2] && (w[0] === 0 || w[0] === 6)) &&
+    !(w[1] === w[3] && (w[1] === 0 || w[1] === 6)));
+  const v = interior.filter(w => w[0] === w[2])
+    .map(w => `x=${w[0]} y=${Math.min(w[1], w[3])}`);
+  const h = interior.filter(w => w[1] === w[3])
+    .map(w => `y=${w[1]} x=${Math.min(w[0], w[2])}`);
+  document.getElementById("buildlist").textContent =
+    `BUILD LIST -- interior walls only (boundary ring assumed)\n` +
+    `vertical  (${v.length}): wall on the EAST side of column x-1 / WEST of x, spanning cell row y\n  ` +
+    v.join("   ") + `\n` +
+    `horizontal (${h.length}): wall on the NORTH side of row y-1 / SOUTH of y, spanning cell column x\n  ` +
+    h.join("   ");
+  document.getElementById("rigstats").textContent =
+    `${rig.cells.length} corridor cells, ${interior.length} interior walls, ` +
+    `${rig.turns.length} turn events/lap`;
+}
+/* ------------------------------------------------ maze creator
+   bert, 2026-09-10: "add a maze creator tab where I can add and remove
+   inner walls with a mouse click then save the layout." The editor holds
+   a 6x6 wall set (inner walls only; the boundary ring is always there)
+   and a goal; everything else a rig needs (cells, path, turns, alcoves)
+   is DERIVED from the walls, the same way the mouse derives its route:
+   corridor cells = reachable from (0,0); loop = shortest out to the goal
+   plus the shortest way back that avoids the out leg's interior cells
+   where a way exists; turns = heading changes with hand. Saved rigs go
+   to localStorage and into RIGS/GOALS, so Push rig / Mirror / the build
+   list work on them unchanged. */
+const MZ_STORE = "tw3_custom_rigs_v1";
+const mz = { walls: new Set(), goal: [5, 5] };   // walls: "x1,y1,x2,y2" post-space segments, inner only
+function mzKey(w) { return w.join(","); }
+function mzInnerSegments() {
+  const segs = [];
+  for (let x = 1; x < 6; x++) for (let y = 0; y < 6; y++) segs.push([x, y, x, y + 1]);   // vertical
+  for (let y = 1; y < 6; y++) for (let x = 0; x < 6; x++) segs.push([x, y, x + 1, y]);   // horizontal
+  return segs;
+}
+function mzBoundary() {
+  const b = [];
+  for (let y = 0; y < 6; y++) { b.push([0, y, 0, y + 1]); b.push([6, y, 6, y + 1]); }
+  for (let x = 0; x < 6; x++) { b.push([x, 0, x + 1, 0]); b.push([x, 6, x + 1, 6]); }
+  return b;
+}
+function mzAllWalls() { return mzBoundary().concat(mzInnerSegments().filter(w => mz.walls.has(mzKey(w)))); }
+function mzLinked(wall, x, y, nx, ny) {
+  if (nx < 0 || ny < 0 || nx > 5 || ny > 5) return false;
+  if (nx === x + 1) return !wall.has(mzKey([x + 1, y, x + 1, y + 1]));
+  if (nx === x - 1) return !wall.has(mzKey([x, y, x, y + 1]));
+  if (ny === y + 1) return !wall.has(mzKey([x, y + 1, x + 1, y + 1]));
+  return !wall.has(mzKey([x, y, x + 1, y]));
+}
+function mzBfs(wall, from, to, avoid) {
+  // Shortest path in steps, ties broken by fewest turns (so an open area is
+  // crossed L-shaped, not as a staircase). State = cell + heading; a plain
+  // BFS over cells serves the reachability map (to == null).
+  const key = c => c[0] + "," + c[1];
+  const DIRS = [[0, 1], [1, 0], [0, -1], [-1, 0]];              // N E S W
+  if (!to) {
+    const prev = new Map([[key(from), null]]);
+    const q = [from];
+    while (q.length) {
+      const [x, y] = q.shift();
+      for (const d of DIRS) {
+        const n = [x + d[0], y + d[1]];
+        if (prev.has(key(n)) || !mzLinked(wall, x, y, n[0], n[1])) continue;
+        prev.set(key(n), [x, y]);
+        q.push(n);
+      }
+    }
+    return prev;
+  }
+  const skey = (c, h) => key(c) + "|" + h;
+  const best = new Map();                                       // state -> {steps, turns, prev}
+  let open = [];
+  for (let h = 0; h < 4; h++) { best.set(skey(from, h), { steps: 0, turns: 0, prev: null, c: from, h }); open.push(skey(from, h)); }
+  const better = (a, b) => a.steps < b.steps || (a.steps === b.steps && a.turns < b.turns);
+  let goalState = null;
+  while (open.length) {
+    open.sort((a, b) => { const A = best.get(a), B = best.get(b); return A.steps - B.steps || A.turns - B.turns; });
+    const sk = open.shift();
+    const st = best.get(sk);
+    if (st.c[0] === to[0] && st.c[1] === to[1]) { goalState = st; break; }
+    for (let h = 0; h < 4; h++) {
+      const n = [st.c[0] + DIRS[h][0], st.c[1] + DIRS[h][1]];
+      if (!mzLinked(wall, st.c[0], st.c[1], n[0], n[1])) continue;
+      if (avoid && avoid.has(key(n)) && !(n[0] === to[0] && n[1] === to[1])) continue;
+      const cand = { steps: st.steps + 1, turns: st.turns + (h === st.h ? 0 : 1), prev: st, c: n, h };
+      const nk = skey(n, h);
+      if (!best.has(nk) || better(cand, best.get(nk))) { best.set(nk, cand); if (!open.includes(nk)) open.push(nk); }
+    }
+  }
+  if (!goalState) return null;
+  const path = [];
+  for (let s = goalState; s; s = s.prev) path.unshift(s.c);
+  return path;
+}
+/* ---- the compiler's fit, ported (Route.cpp / Path.cpp) ----------------
+   Tangent geometry: tangent_for + clothoid_for_rail from Path.cpp, verbatim.
+   Registry numbers come from the live parameter table when connected
+   (rv, ralat, rslew, rur, vout), else the flown defaults. The U-turn's
+   setback is taken as 128 mm for rur 82 (route_uturn_setback_mm). */
+const MZ_CELL = 180, MZ_LEAD = 39, MZ_MIN_STRAIGHT = 20, MZ_U_SETBACK = 128;
+const MZ_RADII = [84, 73, 60, 45], MZ_V_RMAX = 64;
+const MZ_V_RUNG = 0.8, MZ_V_FLOOR = 150, MZ_N_V_RUNGS = 8, MZ_MAX_VETO = 12;
+function mzReg(name, dflt) { const r = rows[name]; const v = r ? parseFloat(r.value) : NaN; return isFinite(v) && v > 0 ? v : dflt; }
+function mzClothoidXY(L, t, w) {
+  const w2 = w * w, w3 = w2 * w, t2 = t * t;
+  return [L * (w - t2 * w3 * w2 / 10 + t2 * t2 * w3 * w3 * w3 / 216),
+          L * (t * w3 / 3 - t2 * t * w3 * w3 * w / 42 + t2 * t2 * t * w3 * w3 * w3 * w2 / 1320)];
+}
+function mzTangentFor(R, L, sweepDeg) {
+  const phi = Math.abs(sweepDeg) * Math.PI / 180;
+  const half = Math.tan(phi / 2);
+  if (L <= 0) return R * half;
+  let t = L / (2 * R);
+  if (2 * t > 0.8 * phi) { L = 0.8 * phi * R; t = L / (2 * R); }
+  const [xc, yc] = mzClothoidXY(L, t, 1);
+  const m = yc - R * (1 - Math.cos(t)), x0 = xc - R * Math.sin(t);
+  return x0 + (R + m) * half;
+}
+function mzTangent(R, v, slew, sweep) { return mzTangentFor(R, v * v / (R * slew * Math.PI / 180), sweep); }
+/* Group raw turns (loop-index i, hand h) into events under a veto list, then
+   fit radii and speeds pairwise; on a refusal veto the feature and repeat.
+   Returns turns [{x,y,t,kind,ix,ex,r,vcap}], diagonals, issues. */
+function mzCompile(raw, n, loop) {
+  const reg = { rv: mzReg("rv", 1500), ralat: mzReg("ralat", 4000), rslew: mzReg("rslew", 7000), vout: mzReg("vout", 0),
+                r135: (rows["r135"] ? parseFloat(rows["r135"].value) : 1) >= 0.5 };
+  // headings into / out of a loop cell, as unit steps
+  const hin = i => [loop[i][0] - loop[i - 1][0], loop[i][1] - loop[i - 1][1]];
+  const hout = i => [loop[i + 1][0] - loop[i][0], loop[i + 1][1] - loop[i][1]];
+  const group = (vetoes) => {
+    const vetoed = (ix, kind) => vetoes.some(v => v.ix === ix && v.kind === kind);
+    const ev = raw.map(t => ({ ...t, ex: t.i, kind: t.h === "U" ? "about" : "90", sweep: t.h === "L" ? 90 : t.h === "R" ? -90 : 180 }));
+    const adjAlt = (a, b) => a >= 0 && b < ev.length && ev[b].i === ev[a].ex + 1 && ev[a].kind === "90" && ev[b].kind === "90" && ev[b].h !== ev[a].h;
+    const adjSame = (a, b) => a >= 0 && b < ev.length && ev[b].i === ev[a].ex + 1 && ev[a].kind === "90" && ev[b].kind === "90" && ev[b].h === ev[a].h;
+    const adjAny = (a, b) => adjAlt(a, b) || adjSame(a, b);
+    // 2a/2b: a same-hand adjacent pair is a V (staircase both sides), a
+    // 135-out (staircase before, straight after), a 135-in (the reverse),
+    // else a U-turn -- merged now unless vetoed.
+    for (let j = 0; j + 1 < ev.length; j++) {
+      if (!adjSame(j, j + 1)) continue;
+      const v = adjAlt(j - 1, j) && adjAlt(j + 1, j + 2);
+      const o = reg.r135 && adjAlt(j - 1, j) && !adjAny(j + 1, j + 2);
+      const i = reg.r135 && adjAlt(j + 1, j + 2) && !adjAny(j - 1, j);
+      if (v || o || i) continue;
+      if (vetoed(ev[j].i, "U")) continue;
+      ev[j] = { ...ev[j], kind: "U", ex: ev[j + 1].i, t: "U" + ev[j].h, sweep: ev[j].h === "L" ? 180 : -180 };
+      ev.splice(j + 1, 1);
+    }
+    // 2c: maximal alternating chains; what joins them; corner points.
+    const runs = [];
+    for (let j = 0; j < ev.length;) {
+      let e = j;
+      while (adjAlt(e, e + 1)) e++;
+      runs.push({ s: j, e, steps: e - j });
+      j = e + 1;
+    }
+    const chain = r => r >= 0 && r < runs.length && runs[r].steps >= 1;
+    const lone = r => r >= 0 && r < runs.length && runs[r].steps === 0 && ev[runs[r].s].kind === "90";
+    runs.forEach((r, q) => {
+      const sameNext = q + 1 < runs.length && adjSame(r.e, runs[q + 1].s);
+      r.vAfter = sameNext && chain(q) && chain(q + 1);
+      r.o135 = reg.r135 && sameNext && chain(q) && lone(q + 1) && !adjAny(runs[q + 1].e, runs[q + 1].e + 1);
+      const samePrev = q > 0 && adjSame(runs[q - 1].e, r.s);
+      r.i135 = reg.r135 && samePrev && chain(q) && lone(q - 1) && !adjAny(runs[q - 1].s - 1, runs[q - 1].s);
+      r.banned = false;
+      for (let m = r.s; m <= r.e; m++) if (vetoed(ev[m].i, "D")) r.banned = true;
+      if (r.o135 && vetoed(ev[runs[q + 1].s].i, "D")) r.banned = true;
+      if (r.i135 && vetoed(ev[runs[q - 1].s].i, "D")) r.banned = true;
+      r.ok = !r.banned && r.steps >= 1;   // ROUTE_DIAG_MIN_STEPS 1 (2026-09-12): a dogleg is a diagonal
+      r.absorbed = false;
+    });
+    for (let pass = 0; pass <= runs.length; pass++) {
+      let moved = false;
+      runs.forEach((r, q) => {
+        const vb = q > 0 && runs[q - 1].vAfter, va = r.vAfter;
+        const want = !r.banned && r.steps >= 1;
+        if (want !== r.ok) { r.ok = want; moved = true; }
+      });
+      for (let q = 0; q + 1 < runs.length; q++)
+        if (runs[q].vAfter && !(runs[q].ok && runs[q + 1].ok)) { runs[q].vAfter = false; moved = true; }
+      for (const r of runs) {
+        if (r.o135 && !r.ok) { r.o135 = false; moved = true; }
+        if (r.i135 && !r.ok) { r.i135 = false; moved = true; }
+      }
+      if (!moved) break;
+    }
+    runs.forEach((r, q) => { if (r.ok && r.o135) runs[q + 1].absorbed = true; if (r.ok && r.i135) runs[q - 1].absorbed = true; });
+    // corner points (cells) -> diagonal length; a 135 moves the point half a
+    // cell past the lone 90's centre (against its departure on an out,
+    // along its arrival on an in)
+    const dlenOf = (r, q) => {
+      const f = ev[r.s], l = ev[r.e];
+      let pi, po;
+      if (r.i135) { const L = ev[runs[q - 1].s]; const h = hin(L.i); pi = [L.x + 0.5 + 0.5 * h[0], L.y + 0.5 + 0.5 * h[1]]; }
+      else { const h = hin(f.i); pi = [f.x + 0.5 - 0.5 * h[0], f.y + 0.5 - 0.5 * h[1]]; }
+      if (r.o135) { const L = ev[runs[q + 1].s]; const h = hout(L.i); po = [L.x + 0.5 - 0.5 * h[0], L.y + 0.5 - 0.5 * h[1]]; }
+      else { const h = hout(l.i); po = [l.x + 0.5 + 0.5 * h[0], l.y + 0.5 + 0.5 * h[1]]; }
+      return Math.hypot(po[0] - pi[0], po[1] - pi[1]) * MZ_CELL;
+    };
+    const turns = [], diagonals = [];
+    let enteredByV = false;
+    runs.forEach((r, q) => {
+      if (r.absorbed) return;
+      if (!r.ok) {
+        for (let m = r.s; m <= r.e; m++) { const t = ev[m]; turns.push({ x: t.x, y: t.y, t: t.kind === "U" ? t.t : t.h, kind: t.kind, ix: t.i, ex: t.ex, sweep: t.sweep, diag: 0 }); }
+        enteredByV = false;
+        return;
+      }
+      const f = ev[r.s], l = ev[r.e];
+      const dlen = dlenOf(r, q);
+      if (!enteredByV) {
+        if (r.i135) { const L = ev[runs[q - 1].s]; turns.push({ x: L.x, y: L.y, t: "135" + L.h, kind: "135in", ix: L.i, ex: L.i, sweep: L.sweep * 1.5, diag: 0 }); }
+        else turns.push({ x: f.x, y: f.y, t: "45" + f.h, kind: "45in", ix: f.i, ex: f.i, sweep: f.sweep / 2, diag: 0 });
+      }
+      const first = r.i135 ? ev[runs[q - 1].s] : f;
+      if (r.vAfter) { turns.push({ x: l.x, y: l.y, t: "V " + l.h, kind: "V", ix: l.i, ex: l.i, sweep: l.sweep, diag: dlen }); diagonals.push([[first.x, first.y], [l.x, l.y]]); }
+      else if (r.o135) { const L = ev[runs[q + 1].s]; turns.push({ x: L.x, y: L.y, t: "135" + L.h, kind: "135out", ix: L.i, ex: L.i, sweep: L.sweep * 1.5, diag: dlen }); diagonals.push([[first.x, first.y], [L.x, L.y]]); }
+      else { turns.push({ x: l.x, y: l.y, t: "45" + l.h, kind: "45out", ix: l.i, ex: l.i, sweep: l.sweep / 2, diag: dlen }); diagonals.push([[first.x, first.y], [l.x, l.y]]); }
+      enteredByV = r.vAfter;
+    });
+    // 2d: a V / 135 candidate whose staircase did not merge is the U it also is
+    for (let j = 0; j + 1 < turns.length; j++) {
+      const a = turns[j], b = turns[j + 1];
+      if (a.kind !== "90" || b.kind !== "90" || b.ix !== a.ex + 1 || a.t !== b.t) continue;
+      if (vetoed(a.ix, "U")) continue;
+      turns[j] = { ...a, kind: "U", ex: b.ix, t: "U" + a.t, sweep: a.sweep * 2 };
+      turns.splice(j + 1, 1);
+    }
+    return { turns, diagonals };
+  };
+  const fit = (turns) => {
+    const nt = turns.length;
+    const rix = new Array(nt).fill(0), six = new Array(nt).fill(0);
+    const isU = j => turns[j].kind === "U", is45 = j => turns[j].kind === "45in" || turns[j].kind === "45out";
+    const is135 = j => turns[j].kind === "135in" || turns[j].kind === "135out", isV = j => turns[j].kind === "V";
+    const radius = j => { let r = MZ_RADII[rix[j]]; if (isV(j) && r > MZ_V_RMAX) r = MZ_V_RMAX + reg.vout; return r; };
+    const speed = j => { const r = radius(j); let v = Math.min(reg.rv, Math.sqrt(reg.ralat * r)); for (let k = 0; k < six[j]; k++) v *= MZ_V_RUNG; if (six[j] > 0 && v < MZ_V_FLOOR) v = MZ_V_FLOOR; return v; };
+    const tangent = j => { if (isU(j)) return MZ_U_SETBACK; let t = mzTangent(radius(j), speed(j), reg.rslew, is45(j) ? 45 : is135(j) ? 135 : 90); if (isV(j)) t -= reg.vout; return t; };
+    const cpOff = j => { const k = turns[j].kind; return k === "45in" || k === "135out" ? -90 : (k === "45out" || k === "V" || k === "135in") ? 90 : 0; };
+    const cpIn = j => turns[j].ix * MZ_CELL + cpOff(j), cpOut = j => turns[j].ex * MZ_CELL + cpOff(j);
+    const minS = j => turns[j].sweep === turns[j - 1].sweep ? 0 : MZ_MIN_STRAIGHT;
+    const demR = j => { if (j < 0 || isU(j) || rix[j] + 1 >= MZ_RADII.length) return false; rix[j]++; return true; };
+    const demV = j => { if (j < 0 || isU(j) || six[j] >= MZ_N_V_RUNGS) return false; six[j]++; return true; };
+    const demote = (v, o) => demR(v) || demR(o) || demV(v) || demV(o);
+    let refusal = null;
+    for (let guard = 0; guard <= nt * (MZ_RADII.length + MZ_N_V_RUNGS) + 1 && !refusal; guard++) {
+      let changed = false;
+      for (let j = 0; j < nt && !changed; j++) {
+        let room, need;
+        if (j === 0) { room = cpIn(0) + MZ_LEAD; need = tangent(0); }
+        else if (turns[j].diag > 0) { room = turns[j].diag; need = tangent(j - 1) + tangent(j) + minS(j); }
+        else { room = cpIn(j) - cpOut(j - 1); need = tangent(j - 1) + tangent(j) + minS(j); }
+        if (need <= room) continue;
+        let victim = j;
+        if (j > 0 && tangent(j - 1) > tangent(j)) victim = j - 1;
+        const other = j === 0 ? -1 : (victim === j ? j - 1 : j);
+        if (!demote(victim, other)) { refusal = { a: j > 0 ? j - 1 : 0, b: j, room, need }; break; }
+        changed = true;
+      }
+      if (!changed) break;
+    }
+    if (!refusal && nt > 0) {
+      const room = n * MZ_CELL - cpOut(nt - 1);
+      while (tangent(nt - 1) > room) if (!demote(nt - 1, -1)) { refusal = { a: nt - 1, b: nt - 1, room, need: tangent(nt - 1), tail: true }; break; }
+    }
+    turns.forEach((t, j) => { t.r = isU(j) ? 82 : radius(j); t.vcap = six[j] > 0 ? Math.round(speed(j)) : 0; t.dropped = !isU(j) && rix[j] > 0; });
+    return refusal;
+  };
+  const vetoes = [];
+  let g, refusal, passes = 0;
+  for (;;) {
+    passes++;
+    g = group(vetoes);
+    refusal = fit(g.turns);
+    if (!refusal || vetoes.length >= MZ_MAX_VETO) break;
+    const A = g.turns[refusal.a], B = g.turns[refusal.b];
+    const diagFam = t => t.kind === "45in" || t.kind === "45out" || t.kind === "V" || t.kind === "135in" || t.kind === "135out";
+    let v = null;
+    if (B.kind === "U") v = { ix: B.ix, kind: "U", at: B };
+    else if (A.kind === "U") v = { ix: A.ix, kind: "U", at: A };
+    else if (diagFam(B)) v = { ix: B.ix, kind: "D", at: B };
+    else if (diagFam(A)) v = { ix: A.ix, kind: "D", at: A };
+    if (!v || vetoes.some(w => w.ix === v.ix && w.kind === v.kind)) break;
+    vetoes.push(v);
+  }
+  const name = t => `${t.t} at (${t.x},${t.y})`;
+  const issues = [];
+  for (const t of g.turns) {
+    if (t.kind === "about") issues.push({ x: t.x, y: t.y, level: "refuse", msg: `${name(t)}: about-face in a cell -- the compiler refuses it (goal in a dead end)` });
+    else if (t.vcap) issues.push({ x: t.x, y: t.y, level: "slow", msg: `${name(t)}: R${t.r} flown at ${t.vcap} mm/s -- the speed rung (its pair had ${t.kind === "90" ? "no room at R45" : "no room"} at corner speed)` });
+    else if (t.dropped) issues.push({ x: t.x, y: t.y, level: "tight", msg: `${name(t)}: R${t.r} -- demoted for room` });
+  }
+  for (const v of vetoes)
+    issues.push({ x: v.at.x, y: v.at.y, level: "veto", msg: v.kind === "U"
+      ? `hairpin at (${v.at.x},${v.at.y}): no room for the U-turn's ${MZ_U_SETBACK} mm setback -- un-merged into two 90s`
+      : `staircase at (${v.at.x},${v.at.y}): could not be placed as a diagonal -- un-merged into its 90s` });
+  if (refusal) {
+    const A = g.turns[refusal.a], B = g.turns[refusal.b];
+    issues.push({ x: B.x, y: B.y, level: "refuse", msg: refusal.tail ? `${name(A)} -> finish: ${Math.round(refusal.room)} mm, needs ${Math.round(refusal.need)}`
+                                                                     : `${name(A)} -> ${name(B)}: ${Math.round(refusal.room)} mm, needs ${Math.round(refusal.need)} -- REFUSED after ${passes} passes` });
+  }
+  return { turns: g.turns, diagonals: g.diagonals, issues, passes, vetoes: vetoes.length };
+}
+function mzDerive() {
+  const wall = new Set(mzAllWalls().map(mzKey));
+  const reach = mzBfs(wall, [0, 0], null, null);
+  const cells = Array.from(reach.keys()).map(k => k.split(",").map(Number)).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const out = mzBfs(wall, [0, 0], mz.goal, null);
+  let back = null;
+  if (out) {
+    const avoid = new Set(out.slice(1, -1).map(c => c[0] + "," + c[1]));
+    back = mzBfs(wall, mz.goal, [0, 0], avoid) || mzBfs(wall, mz.goal, [0, 0], null);
+  }
+  let loop = out && back ? out.concat(back.slice(1)) : (out || [[0, 0]]);
+  // A circuit is stored in the launch-NORTH direction (route.dir n, the usual
+  // flown one) so the V / U markers sit on the cell the mouse meets first.
+  const isCircuit = loop.length > 2 && loop[loop.length - 1][0] === 0 && loop[loop.length - 1][1] === 0 &&
+                    new Set(loop.slice(0, -1).map(c => c[0] + "," + c[1])).size === loop.length - 1;
+  if (isCircuit && loop[1][0] === 1) loop = loop.slice().reverse();
+  // raw turn events: heading changes, hand by cross product
+  const raw = [];
+  for (let i = 1; i + 1 < loop.length; i++) {
+    const a = loop[i - 1], b = loop[i], c = loop[i + 1];
+    const d1 = [b[0] - a[0], b[1] - a[1]], d2 = [c[0] - b[0], c[1] - b[1]];
+    const cross = d1[0] * d2[1] - d1[1] * d2[0];
+    if (cross > 0) raw.push({ i, x: b[0], y: b[1], h: "L" });
+    else if (cross < 0) raw.push({ i, x: b[0], y: b[1], h: "R" });
+    else if (d1[0] === -d2[0] && d1[1] === -d2[1]) raw.push({ i, x: b[0], y: b[1], h: "U" });
+  }
+  // Group and fit the raw turns exactly as the firmware compiler does
+  // (Route.cpp compile_walk 2a-2c and 3, then the multi-pass veto loop of
+  // compile_walk_multipass), so the editor predicts what the mouse will fly:
+  // which staircases merge, which hairpins are U-turns, what radius and
+  // speed every corner ends up at, and what -- if anything -- is refused.
+  const fitted = mzCompile(raw, loop.length - 1, loop);
+  const turns = fitted.turns, diagonals = fitted.diagonals, issues = fitted.issues;
+
+  const onLoop = new Set(loop.map(c => c[0] + "," + c[1]));
+  const open_extra = cells.filter(c => !onLoop.has(c[0] + "," + c[1]));
+  // waypoints for the drawing: every loop cell (lapPoints folds the diagonals)
+  return { cells: cells.filter(c => onLoop.has(c[0] + "," + c[1])), open_extra,
+           walls: mzAllWalls(), path: loop, turns, diagonals, goal: mz.goal.slice(), issues,
+           passes: fitted.passes, vetoes: fitted.vetoes,
+           ok: !!(out && back), closes: loop.length > 1 && loop[loop.length - 1][0] === 0 && loop[loop.length - 1][1] === 0 };
+}
+function mzRender() {
+  const W = 6, sz = W * C + 2 * PAD;
+  const X = (gx) => PAD + gx * C, Y = (gy) => PAD + (W - gy) * C;
+  const d = mzDerive();
+  const onLoop = new Set(d.path.map(c => c[0] + "," + c[1]));
+  const reach = new Set(d.cells.concat(d.open_extra).map(c => c[0] + "," + c[1]));
+  let s = `<svg width="${sz}" height="${sz}" viewBox="0 0 ${sz} ${sz}">`;
+  s += `<rect width="${sz}" height="${sz}" fill="#101216"/>`;
+  for (let x = 0; x < W; x++) for (let y = 0; y < W; y++) {
+    const k = x + "," + y;
+    const fill = !reach.has(k) ? "#1a1d22" : onLoop.has(k) ? "#17211a" : "#20262e";
+    s += `<rect x="${X(x)}" y="${Y(y + 1)}" width="${C}" height="${C}" fill="${fill}"/>`;
+  }
+  // loop path, diagonals folded onto their corridor centre lines
+  let mids = [];
+  if (d.path.length > 1) {
+    const lp = lapPoints(d, d.path);
+    mids = lp.mids;
+    const pts = lp.P.map(u => `${X(u[0])},${Y(u[1])}`).join(" ");
+    s += `<polyline points="${pts}" fill="none" stroke="#3f9f3f" stroke-width="3" opacity="0.7"/>`;
+    for (const mid of mids)
+      s += `<polyline points="${mid.map(u => X(u[0]) + "," + Y(u[1])).join(" ")}" fill="none" stroke="#c678dd" stroke-width="3" stroke-dasharray="6 4" opacity="0.8"/>`;
+  }
+  // goal + start
+  s += `<rect x="${X(mz.goal[0]) + 6}" y="${Y(mz.goal[1] + 1) + 6}" width="${C - 12}" height="${C - 12}" fill="none" stroke="#7ed67e" stroke-width="2" stroke-dasharray="4 3"/>` +
+       `<text x="${X(mz.goal[0]) + C / 2}" y="${Y(mz.goal[1] + 1) + C / 2 + 4}" fill="#7ed67e" font-size="10" text-anchor="middle">GOAL</text>` +
+       `<text x="${X(0) + C / 2}" y="${Y(1) + C - 8}" fill="#8a8f99" font-size="10" text-anchor="middle">START</text>`;
+  // boundary
+  for (const w of mzBoundary())
+    s += `<line x1="${X(w[0])}" y1="${Y(w[1])}" x2="${X(w[2])}" y2="${Y(w[3])}" stroke="#e06c75" stroke-width="6" stroke-linecap="square"/>`;
+  // inner segments: clickable
+  for (const w of mzInnerSegments()) {
+    const on = mz.walls.has(mzKey(w));
+    const vert = w[0] === w[2];
+    const x = vert ? X(w[0]) - 5 : X(w[0]) + POST, y = vert ? Y(w[3]) + POST : Y(w[1]) - 5;
+    const wd = vert ? 10 : C - 2 * POST, ht = vert ? C - 2 * POST : 10;
+    s += `<rect class="wseg ${on ? "on" : "off"}" data-w="${mzKey(w)}" x="${x}" y="${y}" width="${wd}" height="${ht}" rx="2"/>`;
+  }
+  // turn markers, same colours as the rig map
+  for (const t of d.turns) {
+    const col = t.t.startsWith("U") ? "#e06c75" : (t.t.includes("45") || t.t.includes("135")) ? "#c678dd" : "#61afef";
+    const cx = X(t.x) + C / 2, cy = Y(t.y + 1) + C / 2;
+    s += `<circle cx="${cx}" cy="${cy}" r="10" fill="${col}"/>` +
+         `<text x="${cx}" y="${cy + 3}" font-size="${t.t.length > 3 ? 7 : 8}" text-anchor="middle" fill="#101216" font-weight="bold" pointer-events="none">${t.t}</text>`;
+  }
+  // fit rings: red = refused, amber = un-merged / demoted, blue = speed-capped
+  const ringCol = { refuse: "#e06c75", veto: "#e5c07b", tight: "#e5c07b", slow: "#61afef" };
+  for (const is of d.issues)
+    s += `<rect x="${X(is.x) + 3}" y="${Y(is.y + 1) + 3}" width="${C - 6}" height="${C - 6}" rx="4" fill="none" stroke="${ringCol[is.level]}" stroke-width="3" stroke-dasharray="${is.level === "refuse" || is.level === "veto" ? "none" : "5 3"}" pointer-events="none"/>`;
+  for (const t of d.turns) if (t.vcap)
+    s += `<text x="${X(t.x) + C / 2}" y="${Y(t.y + 1) + C - 6}" fill="#61afef" font-size="9" text-anchor="middle" pointer-events="none">@${t.vcap}</text>`;
+  // cell click targets (goal), on top so a click anywhere in the cell sets the goal
+  for (let x = 0; x < W; x++) for (let y = 0; y < W; y++)
+    s += `<rect class="cell" data-c="${x},${y}" x="${X(x) + 12}" y="${Y(y + 1) + 12}" width="${C - 24}" height="${C - 24}"/>`;
+  for (let x = 0; x <= W; x++) for (let y = 0; y <= W; y++)
+    s += `<rect x="${X(x) - POST}" y="${Y(y) - POST}" width="${2 * POST}" height="${2 * POST}" fill="#e8eaee"/>`;
+  s += "</svg>";
+  const host = document.getElementById("mzsvg");
+  host.innerHTML = s;
+  host.querySelectorAll(".wseg").forEach(el => el.onclick = () => {
+    const k = el.dataset.w;
+    if (mz.walls.has(k)) mz.walls.delete(k); else mz.walls.add(k);
+    mzRender();
+  });
+  host.querySelectorAll(".cell").forEach(el => el.onclick = () => {
+    mz.goal = el.dataset.c.split(",").map(Number);
+    mzRender();
+  });
+  const inner = mz.walls.size;
+  const info = document.getElementById("mzinfo");
+  info.textContent =
+    `${inner} inner walls · ${d.cells.length + d.open_extra.length} cells reachable · ` +
+    (d.ok ? `loop ${d.path.length - 1} steps, ${d.turns.length} turn events${d.diagonals.length ? ", " + d.diagonals.length + " diagonal(s)" : ""}${d.open_extra.length ? ", " + d.open_extra.length + " alcove cell(s)" : ""}`
+          : "goal not reachable from the start");
+  const chk = document.getElementById("mzcheck");
+  const refused = d.issues.filter(i => i.level === "refuse");
+  const slow = d.turns.filter(t => t.vcap).length, dropped = d.turns.filter(t => t.dropped).length;
+  const col = { refuse: "#e06c75", veto: "#e5c07b", tight: "#e5c07b", slow: "#61afef" };
+  const mark = { refuse: "✖", veto: "▲", tight: "▲", slow: "●" };
+  if (!d.ok) chk.innerHTML = "";
+  else if (!d.issues.length) chk.innerHTML = `<span style="color:#7ec87e">Compiles in one pass: every corner at R84, nothing un-merged, nothing slowed.</span>`;
+  else chk.innerHTML =
+    (refused.length ? `<span style="color:#e06c75"><b>Refused</b> even after the multi-pass fallback -- tell Claude, this should not happen.</span><br>`
+                    : `<span style="color:#b0b5bf">Compiles in ${d.passes} pass${d.passes === 1 ? "" : "es"}: ${d.vetoes} feature${d.vetoes === 1 ? "" : "s"} un-merged, ${dropped} corner${dropped === 1 ? "" : "s"} demoted, ${slow} speed-capped.</span><br>`) +
+    d.issues.map(i => `<span style="color:${col[i.level]}">${mark[i.level]} ${i.msg}</span>`).join("<br>");
+}
+function mzRigObject() {
+  const d = mzDerive();
+  return { cells: d.cells, open_extra: d.open_extra, walls: d.walls, path: d.path, turns: d.turns,
+           diagonals: d.diagonals, goal: d.goal, custom: true };
+}
+function mzLoadRig(rig, goal) {
+  mz.walls = new Set();
+  const inner = new Set(mzInnerSegments().map(mzKey));
+  for (const w of rig.walls) { const k = mzKey(w); if (inner.has(k)) mz.walls.add(k); }
+  mz.goal = (rig.goal || goal || [5, 5]).slice();
+  mzRender();
+}
+function mzSaveCustom() {
+  try {
+    const store = {};
+    for (const [k, r] of Object.entries(RIGS)) if (r.custom) store[k] = r;
+    localStorage.setItem(MZ_STORE, JSON.stringify(store));
+  } catch (e) {}
+}
+function mzLoadCustom() {
+  try {
+    const store = JSON.parse(localStorage.getItem(MZ_STORE) || "{}");
+    for (const [k, r] of Object.entries(store)) { RIGS[k] = r; GOALS[k] = r.goal || [5, 5]; }
+  } catch (e) {}
+}
+function mzRefreshSelect(selectName) {
+  const sel = document.getElementById("rigsel");
+  const cur = selectName || sel.value;
+  sel.innerHTML = "";
+  for (const k of Object.keys(RIGS)) {
+    const o = document.createElement("option"); o.value = k;
+    o.textContent = RIGS[k].custom ? k + " ✎" : k;
+    sel.appendChild(o);
+  }
+  if (RIGS[cur]) sel.value = cur;
+}
+document.getElementById("btnMzEdit").onclick = () => {
+  const p = document.getElementById("mzedit");
+  p.hidden = !p.hidden;
+  if (!p.hidden) { mzRender(); p.scrollIntoView({ block: "start" }); }
+};
+document.getElementById("btnMzSave").onclick = () => {
+  const name = (document.getElementById("mzName").value || "").trim();
+  if (!name) { alert("Give the rig a name first."); return; }
+  const d = mzDerive();
+  if (!d.ok) { alert("The goal is not reachable from the start -- open a corridor first."); return; }
+  if (RIGS[name] && !RIGS[name].custom) { alert(`"${name}" is a built-in rig; choose another name.`); return; }
+  RIGS[name] = mzRigObject();
+  GOALS[name] = mz.goal.slice();
+  mzSaveCustom();
+  mzRefreshSelect(name);
+  drawRig(name);
+  logline(`[rig "${name}" saved: ${mz.walls.size} inner walls, goal (${mz.goal}), ${d.turns.length} turn events]`);
+};
+document.getElementById("btnMzDownload").onclick = () => {
+  const name = (document.getElementById("mzName").value || "rig").trim();
+  const blob = new Blob([JSON.stringify({ format: "tw3-rig", version: 1, name, rig: mzRigObject() }, null, 1)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = name.replace(/[^\w.-]+/g, "_") + ".rig.json"; a.click();
+};
+document.getElementById("btnMzLoad").onclick = () => {
+  const inp = document.createElement("input");
+  inp.type = "file"; inp.accept = ".json";
+  inp.onchange = async () => {
+    const f = inp.files[0]; if (!f) return;
+    try {
+      const j = JSON.parse(await f.text());
+      const rig = j.rig || j;
+      if (!rig.walls) throw new Error("no walls in the file");
+      mzLoadRig(rig, rig.goal);
+      if (j.name) document.getElementById("mzName").value = j.name;
+      logline(`[${f.name} loaded into the maze creator]`);
+    } catch (e) { logline(`[${f.name}: ${e}]`); }
+  };
+  inp.click();
+};
+document.getElementById("btnMzFrom").onclick = () => {
+  const name = document.getElementById("rigsel").value;
+  mzLoadRig(RIGS[name], GOALS[name]);
+  document.getElementById("mzName").value = RIGS[name].custom ? name : name + " copy";
+  document.getElementById("mzedit").hidden = false;
+};
+document.getElementById("btnMzAllWalls").onclick = () => { mz.walls = new Set(mzInnerSegments().map(mzKey)); mzRender(); };
+document.getElementById("btnMzClear").onclick = () => { mz.walls = new Set(); mzRender(); };
+mzLoadCustom();
+
+const sel = document.getElementById("rigsel");
+mzRefreshSelect(Object.keys(RIGS)[0]);
+sel.onchange = () => drawRig(sel.value);
+drawRig(sel.value);
+</script>
+</body>
+</html>

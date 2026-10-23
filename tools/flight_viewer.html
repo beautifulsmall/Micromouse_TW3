@@ -1,0 +1,2207 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>TW3 Flight Viewer</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; background: #14161a; color: #d8dce2; }
+  #bar { padding: 8px 12px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+         background: #1d2026; border-bottom: 1px solid #2c313a; }
+  #bar label { font-size: 13px; }
+  button { background: #2c313a; color: #d8dce2; border: 1px solid #3a4150; border-radius: 4px;
+           padding: 4px 12px; cursor: pointer; font-size: 13px; }
+  button:hover { background: #3a4150; }
+  #seek { flex: 1 1 260px; }
+  #runs { padding: 4px 12px; display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px;
+          background: #1d2026; border-bottom: 1px solid #2c313a; }
+  .runrow { display: flex; gap: 4px; align-items: center; }
+  .sw { width: 10px; height: 10px; display: inline-block; border-radius: 2px; }
+  .active { outline: 1px solid #d8dce2; }
+  #readout { font: 12px/1.5 ui-monospace, monospace; padding: 6px 12px; white-space: pre;
+             background: #1d2026; border-bottom: 1px solid #2c313a; }
+  #sweepinfo { font: 11px/1.45 ui-monospace, monospace; padding: 6px 12px; white-space: pre;
+               background: #191c22; border-bottom: 1px solid #2c313a; color: #a8b2c0;
+               max-height: 150px; overflow: auto; }
+  canvas { background: #14161a; display: block; }
+  /* Maze and chart side by side, maze first (2026-09-25). The row fills
+     the window below the bars; the bar between the two drags the split. */
+  #row { display: flex; align-items: stretch; }
+  #cv { flex: none; }
+  #splitter { flex: none; width: 6px; cursor: col-resize; background: #2c313a; }
+  #splitter:hover { background: #3a4150; }
+  #chartcol { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
+  #chart { flex: 1 1 0; border-left: 1px solid #2c313a; }
+  #chartbar { padding: 4px 12px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+              font-size: 12px; background: #1d2026; border-bottom: 1px solid #2c313a; }
+  #chartbar .chip { display: inline-flex; gap: 3px; align-items: center; padding: 1px 6px;
+                    border: 1px solid #3a4150; border-radius: 10px; cursor: pointer; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <input type="file" id="file" accept=".txt,.csv,.log" multiple>
+  <button id="clear">Clear</button>
+  <button id="play">Play</button>
+  <button id="stepb">−1</button>
+  <button id="stepf">+1</button>
+  <label>speed <select id="spd">
+    <option value="0.1">0.1x</option><option value="0.25">0.25x</option>
+    <option value="0.5" selected>0.5x</option><option value="1">1x</option>
+    <option value="2">2x</option></select></label>
+  <input type="range" id="seek" min="0" max="0" value="0">
+  <label><input type="checkbox" id="ckTrail" checked>trails</label>
+  <label><input type="checkbox" id="ckBeams" checked>beams</label>
+  <label><input type="checkbox" id="ckCloud" checked>wall cloud</label>
+  <label title="Only paint hits taken while the mouse was within 12 deg of axis-aligned. Off-axis hits cannot be placed correctly -- see beamRange()."><input type="checkbox" id="ckSquare" checked>square hits only</label>
+  <label title="Draw the wall the MAP predicted each side beam was measuring (from the on-board raycast). A prediction sitting on a different wall than the hit is a mis-association."><input type="checkbox" id="ckPred">predicted walls</label>
+  <label title="Sweep dumps only: the path the mouse was TOLD to fly, from the loop's radius and the ring geometry. The gap between this and the trail at a corner exit IS the number the whole experiment is about."><input type="checkbox" id="ckIdeal" checked>commanded path</label>
+  <label title="Sweep dumps only: rotate and translate all four corners into corner 0's frame so they lie on top of each other. A rigid transform, so shape, exit offset and heading error are unchanged -- it just puts 4 corners x every loaded loop in one place. Spread between the folded wall clouds is the hand-built ring's own unevenness, measured."><input type="checkbox" id="ckFold">fold corners</label>
+  <label title="Which channel the folded chart draws, every corner of every visible loop on one arc-relative axis.">fold plot <select id="foldCh">
+    <option value="lat" selected>lateral</option>
+    <option value="ay">ay</option>
+    <option value="dfc">ay − a_dem</option>
+    <option value="yerr">yaw_err</option>
+    <option value="om">omega</option></select></label>
+  <label><input type="checkbox" id="ckGhost" checked>ghosts</label>
+  <label><input type="checkbox" id="ckGrid" checked>180 grid</label>
+  <label title="How to read the FRONT beam byte. ON = forward distance from the MOUSE CENTRE (45 mm at contact), which is what the sub-MCU front auto-cal 'C' produces and what the mouse uses now. OFF = along-beam range from the sensor face, the pre-auto-cal convention (logs ~055/056). Auto-detected per run from the LUT floor where the data shows it; this box is the fallback and the override."><input type="checkbox" id="ckFrontC" checked>front from centre</label>
+  <label title="Angle pointer at the cursor: solid ray = heading now, dashed ray = the local trend of that heading over ~240 mm, wedge between them = the wobble. Read 'off trend' against 'yaw_err': off-trend bigger means the PATH is wandering and the mouse is following it faithfully."><input type="checkbox" id="ckAngle" checked>angle pointer</label>
+  <label title="Mouse centre y at the start, mm from the maze edge. 51 = back to the rear wall (6 mm wall face + 45 mm half body). 90 = old centre-of-cell placement, for logs before 2026-07-28."
+    >start y <input type="number" id="startY" value="51" min="0" max="180" step="1" style="width:56px"></label>
+  <button id="fit">Fit</button>
+  <span style="color:#6b7280;font-size:12px">scroll = zoom · drag = pan · dbl-click = fit</span>
+</div>
+<div id="runs">no runs loaded — pick one or more 'y' dump files (they overlay)</div>
+<div id="readout"></div>
+<div id="sweepinfo" style="display:none"></div>
+<div id="row">
+  <canvas id="cv" width="480" height="700"></canvas>
+  <div id="splitter" title="drag to trade width between the maze and the chart; double-click resets"></div>
+  <div id="chartcol">
+    <div id="chartbar"></div>
+    <canvas id="chart" width="700" height="600"></canvas>
+  </div>
+</div>
+<script>
+"use strict";
+// Beam geometry (body frame: x fwd, y left; from the sensor sub-MCU).
+const BEAMS = [
+  { col: "L",  ox: 40, oy: -15, a:  72.8, color: "#e5c07b" },
+  { col: "FL", ox: 28, oy:  -9, a:   8.4, color: "#61afef" },
+  { col: "FR", ox: 28, oy:   9, a:  -9.6, color: "#61afef" },
+  { col: "R",  ox: 40, oy:  15, a: -71.0, color: "#e06c75" },
+];
+// Logged byte -> along-beam range from the SENSOR, which is what the drawing
+// code needs (it starts each ray at the sensor origin).
+//
+// THE FRONT CONVENTION CHANGED, so this function has to be told which era a
+// log comes from. Both of these were true, at different times:
+//
+//   OLD ("face")   the byte is the along-beam range from the sensor FACE.
+//                  Measured on runs 055/056: FL vs horizontal wall -2.5 mm
+//                  (sd 7.6), FR -2.5. Correct for logs of that era.
+//   NEW ("centre") the byte is the FORWARD distance from the MOUSE CENTRE to
+//                  a perpendicular wall -- 45 mm at contact, which is half the
+//                  body length. The sub-MCU front auto-cal ('C') bakes in both
+//                  the 28 mm sensor offset and the beam angle. This is what
+//                  the mouse does now; walls_evaluate passes the byte straight
+//                  through as front_mm, and SEARCH_FRONT_TARGET_MM = 84 (cell
+//                  centre to wall face) only makes sense this way.
+//
+// Drawing a NEW log with the OLD rule puts every front hit ~28 mm long, which
+// is what "the front hits don't align with the walls" looks like (bert,
+// 2026-08-14). The inverse for the new convention is (d - ox)/cos(a).
+//
+// Auto-detected per run from the LUT floor: in the centre convention nothing
+// can read below ~45 (the nose is there), so a run that shows front values
+// well under that is an old-era log. When a run never gets near a wall the
+// evidence is absent and the checkbox default stands -- the run list says
+// which rule was used either way, so it is never silent.
+//
+// SIDE is unchanged: the byte behaves as the PERPENDICULAR distance from the
+// mouse centre -- the tight sd of 0.5-1.5 mm says convention, not noise -- so
+// it still needs perp -> range: r = (perp + |oy|)/|sin a|.
+//
+// KNOWN LIMIT: "perpendicular from centre" only means anything for a side beam
+// looking at the wall it runs alongside. When a side beam catches a HORIZONTAL
+// wall through a doorway the conversion is meaningless and those hits stay
+// 25-35 mm out. Nothing here can fix that -- the viewer does not know which
+// wall a beam hit. Judge side channels on vertical walls, front on horizontal.
+function beamRange(b, d, frontFromCentre) {
+  const a = b.a * Math.PI / 180;
+  if (b.col === "FL" || b.col === "FR") {
+    if (!frontFromCentre) return d;            // old era: already a range
+    const cs = Math.abs(Math.cos(a));
+    return cs > 1e-3 ? (d - b.ox) / cs : d;    // forward-from-centre -> range
+  }
+  const sn = Math.abs(Math.sin(a));
+  return sn > 1e-3 ? (d + Math.abs(b.oy)) / sn : d;
+}
+
+// Which front rule does this run want? Only the LUT floor can tell us, and
+// only when the mouse got close enough to a wall to show it.
+const FRONT_CONTACT_MM = 45;   // half the body length: the centre-convention floor
+function detectFrontConv(rec) {
+  // ONLY a reading below the contact distance is evidence, and it is evidence
+  // of exactly one thing: the byte cannot be forward-from-centre, because the
+  // mouse's own nose is at 45 mm. Anything above that is consistent with BOTH
+  // conventions and proves nothing -- speed runs never stop at a wall, so the
+  // floor is usually never exercised (measured: min front 50..140 across the
+  // logs on disk). Returning "centre" on that would be asserting a convention
+  // from an absence, which is how the stale front note survived as long as it
+  // did. Unknown means unknown; the checkbox decides and the label says so.
+  let lo = 999;
+  for (const r of rec)
+    for (const c of ["FL", "FR"]) {
+      const d = r[c];
+      if (d > 0 && d < 255 && d < lo) lo = d;
+    }
+  if (lo > 900) return { centre: null, why: "no front data — assumed" };
+  if (lo < FRONT_CONTACT_MM - 6)
+    return { centre: false,
+             why: `min front ${lo} is inside the ${FRONT_CONTACT_MM} mm nose — measured: old (face)` };
+  return { centre: null, why: `min front ${lo}, never near the floor — assumed` };
+}
+const CELL = 180;
+// Start pose. The mouse is placed with its BACK TO THE REAR WALL, so its centre
+// sits at 6 mm (wall face) + 45 mm (half of the 90 mm body, spec 3.1) = 51 mm,
+// NOT at the cell centre. The firmware agrees as of 2026-07-28: the speed path
+// carries a lead-in so s=0 is the real start pose, and the search's boot-align
+// leg drives a cell plus the setback. Editable in the toolbar because logs
+// recorded before that (and any centre-placed run) want 90.
+const START_X = 90;
+function startY() { return +document.getElementById("startY").value || 0; }
+const PALETTE = ["#3fa65c","#c678dd","#56b6c2","#d19a66","#e06c75",
+                 "#61afef","#98c379","#e5c07b"];
+let runs = [];        // {name, color, rec[], pose[], hits[], visible}
+let cur = 0;          // active run index
+let idx = 0, playing = false;
+
+// THE LAUNCH HEADING (bert, 2026-09-11: "the CCW data sets display
+// misaligned with the CW set"). yaw in the log is relative to the launch
+// heading, and the reconstruction used to assume every lap launched NORTH
+// from the rear wall of (0,0). A CCW lap launches EAST from the west wall,
+// so its trail came out rotated 90 degrees and translated onto the wrong
+// datum. Resolution, in order: an explicit override (the N/E control on the
+// run row), the banner's launch=N/E/S/W field (firmware from this date), and
+// for older logs the launch-cell walls -- a north launch from (0,0) sees the
+// west wall on the LEFT beam and nothing on the right (every rig's start
+// cell opens east); an east launch sees the south wall on the RIGHT and
+// nothing on the left.
+function detectLaunch(text, rec) {
+  const m = /launch=([NESW])/.exec(text);
+  if (m) return { h: m[1], why: "banner" };
+  let l = 0, r = 0, n = 0;
+  for (const q of rec) {
+    if (q.s > 30) break;
+    n++;
+    if (q.L !== 255 && q.L !== 0 && q.L < 130) l++;
+    if (q.R !== 255 && q.R !== 0 && q.R < 130) r++;
+  }
+  if (n && l > n * 0.7 && r < n * 0.3) return { h: "N", why: "west wall on the left at launch" };
+  if (n && r > n * 0.7 && l < n * 0.3) return { h: "E", why: "south wall on the right at launch" };
+  return { h: "N", why: "assumed (no banner field, walls ambiguous)" };
+}
+// Start pose for a launch heading: the axle startY() from the rear wall
+// that the back panel is pressed on, centred in the cell across it. yaw0 is
+// added to every logged yaw (north 0, east -90, +CCW).
+function launchPose(h) {
+  const sy = startY();
+  switch (h) {
+    case "E": return { x: sy, y: START_X, yaw0: -90 };
+    case "S": return { x: START_X, y: 180 - sy, yaw0: 180 };
+    case "W": return { x: 180 - sy, y: START_X, yaw0: 90 };
+    default:  return { x: START_X, y: sy, yaw0: 0 };
+  }
+}
+function parseRun(name, text, launchOverride) {
+  const rec = [], walls = [];   // walls: [x0,y0,x1,y1] world mm
+  let fIdx = null;              // flight column map, from the t_ms header row
+  let banner = "";
+  for (const line of text.split(/\r?\n/)) {
+    const p = line.trim().split(",");
+    if (p[0] === "SETTINGS") { banner = line.trim().slice(9); continue; }
+    // Exact map preamble (MAZE_V,i,mask / MAZE_H,i,mask): the searched
+    // walls, so we draw ground truth instead of inferring from beams.
+    // Guard against radio-garbled preamble lines: a bad index (e.g.
+    // MAZE_V,9871,..) would place a wall at 1.8M mm and zoom the view to
+    // nothing. Valid indices are 0..16 (17 grid lines), mask 0..0xFFFF.
+    if (p[0] === "MAZE_V" && p.length === 3) {
+      const i = +p[1], m = +p[2];
+      if (i >= 0 && i <= 16 && m >= 0 && m <= 0xFFFF)
+        for (let yb = 0; yb < 16; yb++)
+          if (m & (1 << yb)) walls.push([i*180, yb*180, i*180, yb*180+180]);
+      continue;
+    }
+    if (p[0] === "MAZE_H" && p.length === 3) {
+      const i = +p[1], m = +p[2];
+      if (i >= 0 && i <= 16 && m >= 0 && m <= 0xFFFF)
+        for (let xb = 0; xb < 16; xb++)
+          if (m & (1 << xb)) walls.push([xb*180, i*180, xb*180+180, i*180]);
+      continue;
+    }
+    // HEADER-DRIVEN COLUMNS (2026-08-28). The dump's column set is dynamic
+    // now -- all-zero optional columns are omitted per run (the firmware
+    // names them on an OMITTED line) -- so nothing here may count positions.
+    // The header row the dump always emits (t_ms,s,v,...) is parsed into a
+    // name->index map and every field is read by NAME, absent columns taking
+    // their honest defaults. This is the same policy the sweep parser has
+    // used all along, and it reads every dump vintage: the old fixed 26-col
+    // format carries the same header line. (The desync this fixed: dropping
+    // `slide` shifted everything after `ax` one left, and the beam columns
+    // displayed their neighbours' data.)
+    if (p[0] === "t_ms") {
+      fIdx = {};
+      p.forEach((k2, i2) => { fIdx[k2.trim()] = i2; });
+      continue;
+    }
+    if (p.length >= 10 && /^\d+$/.test(p[0]) && fIdx) {
+      const g = (nm, dflt) => {
+        const i2 = fIdx[nm];
+        return (i2 !== undefined && i2 < p.length) ? +p[i2] : dflt;
+      };
+      // EVERY COLUMN, BY NAME (2026-09-25): the chart lets you plot any
+      // logged channel, so the record keeps the whole row as well as the
+      // named fields the map drawing uses.
+      const c = {};
+      for (const k2 in fIdx) { const i2 = fIdx[k2]; if (i2 < p.length) c[k2] = +p[i2]; }
+      rec.push({
+        c,
+        t: g("t_ms", 0), s: g("s", 0), v: g("v", 0), yaw: g("yaw", 0),
+        yerr: g("yaw_err", 0), ay: g("ay", 0), ax: g("ax", 0),
+        slide: g("slide", 0), flags: g("flags", 0),
+        L: g("L", 255), FL: g("FL", 255), FR: g("FR", 255), R: g("R", 255),
+        wf: g("wf", 0), om: g("omega", 0),
+        // PREDICTED WALL VECTOR: what the map said each side beam should be
+        // looking at. axis 255 = none. Omitted on route runs.
+        paxL: g("pax_l", 255), pcoL: g("pco_l", 0), prnL: g("prn_l", 255),
+        paxR: g("pax_r", 255), pcoR: g("pco_r", 0), prnR: g("prn_r", 255),
+        // observer's accumulated heading correction, deg
+        ohead: g("obs_head", 0),
+      });
+    }
+  }
+  if (!rec.length) return null;
+  // Physics reconstruction: step along fusion yaw (north 0 = +y, east -90 =
+  // +x, +CCW; forward unit u = (-sin, cos)).
+  //
+  // DISTANCE BASIS = the `s` column, NOT the `v` column. `v` is the COMMANDED
+  // velocity (FlightLog.h: "commanded velocity"), so integrating it gives the
+  // reference trajectory, and the mouse LAGS that reference -- the gap builds
+  // through the launch ramp and holds at cruise, worth ~50-60 mm by the time
+  // the run is up to speed. That lag was being drawn as real distance and it
+  // pushed the whole wall cloud forward. `s` is control's fused path position
+  // ("fused + corrections"), i.e. the mouse's measured travel, which is what
+  // the reconstruction actually wants.
+  // Front convention for THIS run, before any hit is placed.
+  const fc = detectFrontConv(rec);
+  const frontFromCentre = fc.centre === null
+    ? (document.getElementById("ckFrontC") || { checked: true }).checked
+    : fc.centre;
+
+  const det = detectLaunch(text, rec);
+  const launch = launchOverride || det.h;
+  const lp = launchPose(launch);
+  const pose = [], hits = [];
+  let x = lp.x, y = lp.y;
+  for (let i = 0; i < rec.length; i++) {
+    const r = rec[i];
+    if (i > 0) {
+      let ds = r.s - rec[i-1].s;
+      // A TWO-LEG RUN (banner route:S->G|G->S, flags bit6 on the home leg):
+      // the mouse stops at the goal, turns in place, and the home leg's s
+      // restarts at 0 from the goal cell's centre. The yaw frame is
+      // continuous across the turn (nothing re-zeroes the fusion between
+      // legs), so the only thing to do at the boundary is not to step
+      // backwards by the whole out leg.
+      if (ds < -50) ds = Math.max(0, r.s);
+      const th = (r.yaw + lp.yaw0) * Math.PI / 180;
+      x += ds * -Math.sin(th);
+      y += ds * Math.cos(th);
+    }
+    const th = (r.yaw + lp.yaw0) * Math.PI / 180;
+    pose.push({ x, y, th });
+    const c = Math.cos(th), s2 = Math.sin(th);
+    // How far from axis-aligned the mouse was, 0..45 deg. Both beam models
+    // assume the wall is square to the mouse (the side conversion literally
+    // assumes the wall runs ALONGSIDE it), so a hit taken mid-diagonal or
+    // mid-corner cannot be placed correctly. Measured on 055/056 against the
+    // map preamble, hits landing on horizontal walls:
+    //     side channels, <10 deg off-axis   n=725  mean  +3.4 mm
+    //     side channels, 10-45 deg off-axis n=339  mean +36.0 mm
+    //     front channels, <10 deg off-axis  n=424  mean  +5.5 mm
+    //     front channels, 10-45 deg off     n= 85  mean +21.0 mm
+    // 68% of the horizontal-wall cloud comes from the SIDE channels, and the
+    // off-axis part of it is what makes horizontal walls look displaced. The
+    // 'square hits only' box drops them rather than drawing them somewhere
+    // they are not. The cloud goes quiet through diagonals -- that is honest;
+    // the viewer does not know which wall an oblique beam hit.
+    const off = Math.abs((((r.yaw + lp.yaw0 + 45) % 90) + 90) % 90 - 45);
+    for (const b of BEAMS) {
+      const d = r[b.col];
+      if (d === 255 || d === 0 || d === undefined) continue;
+      const bx = x + b.ox * -s2 + b.oy * -c;
+      const by = y + b.ox * c + b.oy * -s2;
+      const ba = th + b.a * Math.PI / 180;
+      const rb = beamRange(b, d, frontFromCentre);
+      hits.push({ x: bx + rb * -Math.sin(ba), y: by + rb * Math.cos(ba),
+                  i, color: b.color, off });
+    }
+  }
+  // ---- ANGLE DATA: yaw against its own LOCAL TREND -----------------------
+  //
+  // The number this exists for. On a diagonal, yaw is supposed to sit at a
+  // constant -135, so any wobble on top of the trend is the path (or the
+  // tracker) wandering. Fitting the trend over a sliding window of TRAVEL --
+  // not of records -- keeps it honest when the mouse slows down, and
+  // subtracting it leaves the wobble alone.
+  //
+  // Read it NEXT TO yaw_err, which is the point: yaw_err is how far the mouse
+  // is from what it was TOLD. If yaw wobbles and yaw_err does not, the mouse
+  // is faithfully tracking a reference that is itself wobbling -- the log 069
+  // lesson, and how 081's diagonal was diagnosed:
+  //     081, s 1101..1999   yaw about trend rms 5.08 deg, peak 8.15
+  //                         yaw_err            rms 2.68 deg, max  4.80
+  //                         wobble period      254 mm
+  //     diagonal cell pitch 180*sqrt(2)      = 254.6 mm
+  // Same number. The band was scalloping once per lattice post, because
+  // dclr=70 asks for more clearance than a diagonal passage has: two opposing
+  // posts leave 127.3 mm between them, so 55.1 mm from the centreline is all
+  // there is, and 70 cannot be honoured on both sides at once.
+  trendFit(rec);
+
+  // What kind of log this is, from the banner: the slip test re-purposes
+  // columns (v = wheel, obs_along = v_imu, obs_cross = v_ref, omega = v_abs)
+  // and the chart names them accordingly.
+  const logkind = /^slip:/.test(banner) ? "slip" : /^lat:/.test(banner) ? "lat"
+                : /^search:/.test(banner) ? "search" : "route";
+  deriveChannels(rec, logkind);
+  // keep the source text so changing the start pose can rebuild without a reload
+  return { name, text, rec, pose, hits, walls, visible: true, banner, logkind,
+           frontFromCentre, frontWhy: fc.why,
+           launch, launchWhy: launchOverride ? "set by hand" : det.why,
+           launchOverride: launchOverride || null,
+           color: PALETTE[runs.length % PALETTE.length] };
+}
+
+// ---- DERIVED CHANNELS (bert, 2026-09-25: "selectable data from any data
+// in the flight log; if acceleration isn't logged it can be calculated
+// from other data, odometry and IMU -- that's the plot that will show the
+// ABS firing"). Each record gets a `d` map of computed channels next to its
+// `c` map of logged ones. Derivatives are central differences over a +/-3
+// record window on the log's own t_ms, so a decimated log still gives a
+// usable accel; the IMU's ax is logged directly and sits beside them.
+function deriveChannels(rec, kind) {
+  const n = rec.length;
+  // +/-8 records (~25 ms at the packet rate): the encoder velocity is noisy
+  // enough that a tighter window is unreadable, and 25 ms still resolves a
+  // 10 ms ABS episode's effect on the wheel.
+  const ddt = (get, i) => {
+    const a = Math.max(0, i - 8), b = Math.min(n - 1, i + 8);
+    const dt = (rec[b].t - rec[a].t) / 1000;
+    return dt > 0 ? (get(rec[b]) - get(rec[a])) / dt : 0;
+  };
+  for (let i = 0; i < n; i++) {
+    const r = rec[i], c = r.c, d = {};
+    d["dv/dt"] = ddt(z => z.v, i);              // wheel accel (slip) / commanded accel (route)
+    d["ds/dt"] = ddt(z => z.s, i);              // speed from the distance column
+    if (kind === "slip") {
+      const vimu = c.obs_along || 0, vref = c.obs_cross || 0, vabs = c.omega || 0;
+      d["v_imu"] = vimu; d["v_ref"] = vref; d["v_abs"] = vabs;
+      d["v-v_imu"] = r.v - vimu;
+      d["slip%"] = Math.abs(r.v) > 50 ? (r.v - vimu) / Math.abs(r.v) * 100 : 0;
+      d["dv_imu/dt"] = ddt(z => z.c.obs_along || 0, i);
+      d["duty%"] = c.slide || 0;
+      // obs_head carries left - right wheel velocity on a slip log (the
+      // dump prints the column /100 as if it were degrees). Which tyre
+      // let go: positive = the left wheel is the faster one.
+      d["vl-vr"] = (c.obs_head || 0) * 100;
+    }
+    if (kind === "lat") {
+      // the lateral test (Bench.cpp 'lat'): ay = measured lateral, obs_along
+      // = commanded v^2/R, omega = measured yaw rate, obs_cross = commanded
+      const ac = c.obs_along || 0, oc = c.obs_cross || 0;
+      d["lat_cmd"] = ac; d["omega_cmd"] = oc;
+      d["ay/cmd"] = ac > 300 ? Math.abs(r.ay) / ac : 0;          // 1 = the tyre is delivering the command
+      d["om/cmd"] = Math.abs(oc) > 20 ? Math.abs(c.omega) / Math.abs(oc) : 0;
+      d["R_actual"] = (Math.abs(c.omega) > 20 && r.v > 50) ? r.v / (Math.abs(c.omega) * Math.PI / 180) : 0;   // mm, v_cmd / omega_meas
+    }
+    // bit5 = ABS acting (slip and route path packets; a route's in-place
+    // turn packets use it for "backing up", bit4 set -- masked out here).
+    d["abs"] = ((r.flags & 0x20) && !(r.flags & 0x10)) ? 1 : 0;
+    if (kind !== "slip") d["slipg"] = (r.flags & 0x80) ? 1 : 0;   // estimator slip gate open (route logs from 2026-09-25)
+    d["brake"] = (r.flags & 0x40) ? 1 : 0;
+    d["arc"] = (r.flags & 0x01) ? 1 : 0;
+    if (kind === "route" || kind === "search") d["fgov"] = (r.flags & 0x02) ? 1 : 0;   // front governor capped v (from 2026-09-26)
+    d["corr"] = (r.flags & 0x04) ? 1 : 0;
+    d["turn"] = (r.flags & 0x10) ? 1 : 0;
+    r.d = d;
+  }
+  if (kind === "route" || kind === "search") imuDistance(rec);
+}
+// THE IMU DISTANCE (2026-10-02; bert: "show the double integration of ax so
+// it can be compared to s, the wheel odometry distance"). ax is the IMU's
+// forward acceleration in mm/s^2, already gravity-removed on the mouse.
+//   d_ax: per leg (s restarting = a new leg, as the trail does), v_ax =
+//     integral of ax dt, d_ax = integral of v_ax dt, started at the leg's s.
+//     BIAS: for each run between two stops, the bias that makes the body end
+//     at rest as it began (the integral of ax over the run is zero) -- from
+//     the IMU alone; a run the log ends inside uses the mean ax standing at
+//     the leg start. ZERO-VELOCITY UPDATE:
+//     wherever the commanded v is 0 (a stop, an in-place turn) v_ax is reset
+//     to 0. Even so a double integral drifts -- on a 2.5 m MR2 leg a few
+//     per cent of scale and tilt add up to 100s of mm -- so read d_ax for its
+//     SHAPE against odo, and use slip100 for numbers.
+//   slip100: the same double integral restarted 100 mm of odometry back, from
+//     the WHEEL speed there, minus the odometry over those 100 mm. Local, so
+//     drift-free in practice: + = the body went further than the wheels
+//     turned (a brake slide: odometry UNDER-reads, the corners fire late),
+//     - = the wheels turned further than the body went (wheelspin).
+//   odo = s + (wf - wf at the leg start): wf is wheel - fused with the
+//     odometer's running total in it, so this is the WHEEL distance.
+const SLIP_WIN_MM = 100;
+function imuDistance(rec) {
+  const n = rec.length;
+  let i0 = 0;
+  while (i0 < n) {
+    let i1 = i0 + 1;
+    while (i1 < n && rec[i1].s - rec[i1 - 1].s >= -50) i1++;
+    let bsum = 0, bn = 0;
+    for (let i = i0; i < i1 && bn < 60; i++) {
+      if (Math.abs(rec[i].v) >= 5) break;
+      if (rec[i].flags & 0x10) continue;
+      bsum += rec[i].ax; bn++;
+    }
+    const bias0 = bn >= 3 ? bsum / bn : 0;
+    // THE END-VELOCITY CONSTRAINT: between two stops (|v_cmd| < 1) the body
+    // starts and ends at rest, so the integral of (ax - bias) over that run
+    // must be zero -- which fixes the run's bias from the IMU alone, no
+    // odometry in it. A run the log ends inside (an abort) keeps bias0.
+    const stopped = i => Math.abs(rec[i].v) < 1;
+    const biasAt = new Float64Array(i1 - i0).fill(bias0);
+    for (let a = i0; a < i1; ) {
+      if (stopped(a)) { a++; continue; }
+      let b = a;
+      while (b < i1 && !stopped(b)) b++;
+      // A leg's first and last records are at rest too (the launch from the
+      // datum, the stop at the goal) when the commanded v there is small.
+      const startRest = a > i0 || Math.abs(rec[i0].v) < 30;
+      const endRest = b < i1 || Math.abs(rec[i1 - 1].v) < 30;
+      if (startRest && endRest) {   // a moving run with rest at each end
+        let sa = 0, st = 0;
+        const bEnd = b < i1 ? b : i1 - 1;
+        for (let k = Math.max(a, i0 + 1); k <= bEnd; k++) {
+          const dt = (rec[k].t - rec[k - 1].t) / 1000;
+          if (dt <= 0 || dt >= 0.5) continue;
+          sa += 0.5 * (rec[k - 1].ax + rec[k].ax) * dt; st += dt;
+        }
+        if (st > 0.05) for (let k = a; k <= bEnd; k++) biasAt[k - i0] = sa / st;
+      }
+      a = b;
+    }
+    let v = 0, d = rec[i0].s;
+    for (let i = i0; i < i1; i++) {
+      const r = rec[i];
+      if (i > i0) {
+        const p = rec[i - 1], dt = (r.t - p.t) / 1000, bb = biasAt[i - i0];
+        if (dt > 0 && dt < 0.5) {
+          const v1 = v + 0.5 * ((p.ax - bb) + (r.ax - bb)) * dt;
+          d += 0.5 * (v + v1) * dt;
+          v = v1;
+        }
+      }
+      if (stopped(i)) v = 0;   // ZUPT: stopped, or turning in place
+      const odo = r.s + (r.wf - rec[i0].wf);
+      r.d["v_ax"] = v;
+      r.d["d_ax"] = d;
+      r.d["odo"] = odo;
+      r.d["d_ax-odo"] = d - odo;
+      r.d["d_ax-s"] = d - r.s;
+      r.d["ax_bias"] = biasAt[i - i0];
+    }
+    const bias = bias0;
+    // slip100: wheel speed by a central difference of odo over +/-4 records.
+    const vw = i => {
+      const a = Math.max(i0, i - 4), b = Math.min(i1 - 1, i + 4);
+      const dt = (rec[b].t - rec[a].t) / 1000;
+      return dt > 0 ? (rec[b].d.odo - rec[a].d.odo) / dt : 0;
+    };
+    let j = i0;
+    for (let i = i0; i < i1; i++) {
+      const oi = rec[i].d.odo;
+      while (j < i && oi - rec[j + 1].d.odo >= SLIP_WIN_MM) j++;
+      let slip = 0;
+      if (oi - rec[j].d.odo >= SLIP_WIN_MM * 0.9) {
+        let vv = vw(j), dd = 0;
+        for (let k = j + 1; k <= i; k++) {
+          const dt = (rec[k].t - rec[k - 1].t) / 1000;
+          if (dt <= 0 || dt >= 0.5) continue;
+          const v1 = vv + 0.5 * ((rec[k - 1].ax - bias) + (rec[k].ax - bias)) * dt;
+          dd += 0.5 * (vv + v1) * dt;
+          vv = v1;
+        }
+        slip = dd - (oi - rec[j].d.odo);
+      }
+      rec[i].d["slip100"] = slip;
+    }
+    i0 = i1;
+  }
+}
+// The channels a run offers, with labels that say what the column MEANS in
+// this kind of log, and the default set for the chart.
+function channelCatalogue(R) {
+  const slip = R.logkind === "slip", lat = R.logkind === "lat";
+  const cols = R.rec.length ? Object.keys(R.rec[0].c) : [];
+  const label = {
+    t_ms: "t_ms", s: slip ? "s = wheel distance" : "s = fused path position",
+    v: slip ? "v = WHEEL velocity" : lat ? "v = COMMANDED v along the arc" : "v = COMMANDED velocity",
+    yaw: "yaw", yaw_err: "yaw_err", ay: "ay (IMU lateral)", ax: "ax (IMU forward accel)",
+    slide: slip ? "slide = duty x100" : "slide", flags: "flags",
+    L: "L beam", FL: "FL beam", FR: "FR beam", R: "R beam",
+    wf: "wf = wheel - fused", omega: slip ? "omega = v_abs (ABS body v)" : lat ? "omega = MEASURED yaw rate" : "omega",
+    obs_along: slip ? "obs_along = v_imu" : lat ? "obs_along = commanded lateral v^2/R" : "obs_along",
+    obs_cross: slip ? "obs_cross = v_ref" : lat ? "obs_cross = commanded omega" : "obs_cross",
+    obs_head: slip ? "obs_head = (vl - vr)/100 -- use the vl-vr channel" : "obs_head",
+  };
+  // UNITS (2026-09-25, the scope grid): every channel carries the unit its
+  // column is written in (FlightLog.h), and the chart gives each unit ONE
+  // axis, so v, v_imu and v_ref share a mm/s scale and can be read against
+  // each other, while ax and dv/dt share mm/s^2. The slip test re-purposes
+  // columns, so the unit follows the log kind.
+  const unit = {
+    s: "mm path", wf: "mm", L: "mm", FL: "mm", FR: "mm", R: "mm", clear: "mm",
+    prn_l: "mm", prn_r: "mm", pco_l: "mm", pco_r: "mm", lat: "mm", dist: "mm",
+    slide: slip ? "%" : "mm",
+    v: "mm/s", obs_along: slip ? "mm/s" : lat ? "mm/s²" : "mm", obs_cross: slip ? "mm/s" : lat ? "deg/s" : "mm",
+    omega: slip ? "mm/s" : "deg/s",
+    ax: "mm/s²", ay: "mm/s²",
+    yaw: "deg", yaw_err: "deg", obs_head: "deg",
+  };
+  const out = [];
+  for (const k of cols) if (k !== "t_ms")
+    out.push({ id: "c:" + k, name: k, lab: label[k] || k, unit: unit[k] || "raw", get: r => r.c[k] });
+  const D = R.rec.length ? Object.keys(R.rec[0].d) : [];
+  const dlab = { "dv/dt": slip ? "dv/dt = wheel accel" : "dv/dt = commanded accel",
+                 "ds/dt": slip ? "ds/dt = wheel speed" : "ds/dt = fused speed",
+                 "v_imu": "v_imu (IMU integral)", "v_ref": "v_ref (profile)", "v_abs": "v_abs (ABS body v)",
+                 "v-v_imu": "v - v_imu (wheel over body)", "slip%": "slip % (wheel vs IMU)",
+                 "dv_imu/dt": "dv_imu/dt = body accel from v_imu", "duty%": "duty %",
+                 "vl-vr": "vl - vr (left minus right wheel; which tyre let go)",
+                 "lat_cmd": "commanded lateral v^2/R", "omega_cmd": "commanded yaw rate",
+                 "ay/cmd": "measured lateral / commanded (1 = tyre delivering; the knee is where it falls)",
+                 "om/cmd": "measured yaw rate / commanded (under 1 = running wide)",
+                 "R_actual": "radius actually flown, v_cmd / omega_meas",
+                 "abs": "ABS acting (flag)", "brake": "braking (flag)", "arc": "in arc (flag)",
+                 "corr": "correction step (flag)", "turn": "in-place turn (flag)",
+                 "slipg": "estimator slip gate open: d_est coasting on the IMU (flag)",
+                 "fgov": "front governor capping the speed: a wall in both front beams (flag)",
+                 "v_ax": "v_ax = integral of ax (bias off, zeroed where v_cmd = 0)",
+                 "d_ax": "d_ax = double integral of ax, per leg, from the leg's s",
+                 "odo": "odo = s + (wf - wf at leg start) = WHEEL odometry distance",
+                 "d_ax-odo": "d_ax - odo: + = the body went further than the wheels say (brake slide), - = wheelspin",
+                 "d_ax-s": "d_ax - s: IMU distance against the path position the corners fire on",
+                 "ax_bias": "ax bias taken off (mean ax standing at the leg start)",
+                 "slip100": "slip100: IMU distance - wheel distance over the last 100 mm (+ = brake slide, odometry under-reads; - = wheelspin)" };
+  const dunit = { "dv/dt": "mm/s²", "ds/dt": "mm/s", "v_imu": "mm/s", "v_ref": "mm/s", "v_abs": "mm/s",
+                  "v-v_imu": "mm/s", "slip%": "%", "dv_imu/dt": "mm/s²", "duty%": "%", "vl-vr": "mm/s",
+                  "lat_cmd": "mm/s²", "omega_cmd": "deg/s", "ay/cmd": "raw", "om/cmd": "raw", "R_actual": "mm",
+                  "abs": "flag", "brake": "flag", "arc": "flag", "corr": "flag", "turn": "flag", "slipg": "flag", "fgov": "flag",
+                  "v_ax": "mm/s", "d_ax": "mm path", "odo": "mm path", "d_ax-odo": "mm", "d_ax-s": "mm",
+                  "ax_bias": "mm/s²", "slip100": "mm" };
+  for (const k of D) out.push({ id: "d:" + k, name: k, lab: dlab[k] || k, unit: dunit[k] || "raw", get: r => r.d[k] });
+  return out;
+}
+const CHART_DEFAULTS = {
+  slip: ["c:v", "d:v_imu", "d:v_ref", "c:ax", "d:dv/dt", "d:abs"],
+  lat: ["c:ay", "d:lat_cmd", "c:omega", "d:omega_cmd", "c:yaw_err", "d:slipg"],
+  route: ["c:yaw_err", "c:wf", "c:ay", "c:v", "d:ds/dt"],
+  search: ["c:yaw_err", "c:wf", "c:ay", "c:v", "d:fgov"],
+};
+const CHART_COLORS = ["#61afef", "#e5c07b", "#e06c75", "#98c379", "#c678dd", "#56b6c2",
+                      "#d19a66", "#abb2bf", "#f28fad", "#8be9fd"];
+let chartSel = null;   // Set of channel ids for the active run's kind
+function chartSelection(R) {
+  const key = "tw3fv.chart." + R.logkind;
+  if (!chartSel || chartSel.kind !== R.logkind) {
+    let ids = null;
+    try { ids = JSON.parse(localStorage.getItem(key) || "null"); } catch (e) {}
+    chartSel = { kind: R.logkind, ids: new Set(ids || CHART_DEFAULTS[R.logkind] || []) };
+  }
+  return chartSel;
+}
+function chartSelSave() {
+  if (!chartSel) return;
+  try { localStorage.setItem("tw3fv.chart." + chartSel.kind, JSON.stringify([...chartSel.ids])); } catch (e) {}
+}
+// ---- THE SCOPE (2026-09-25, bert: "a grid display like an oscilloscope,
+// with selectable axis timings and values displayed in degrees, mm, deg/s,
+// mm/s, deg/s/s, mm/s/s ... tags on traces showing y value"). Ten
+// divisions across, eight up. The timebase is per division in the x
+// channel's unit (ms, mm or records) or "fit" for the whole run; a fixed
+// timebase windows the run around the cursor, so the seek slider scrolls
+// it. Each UNIT has its own per-division scale, auto (a 1-2-5 step that
+// fits the visible data in eight divisions) or chosen; the zero line sits
+// on a division. The legend gives every axis as "unit step/div"; each
+// trace carries a tag at the cursor with its value in its unit.
+const DIV_X = 10, DIV_Y = 8;
+const STEPS_125 = (() => { const o = []; for (let e = -2; e <= 5; e++) for (const m of [1, 2, 5]) o.push(m * Math.pow(10, e)); return o; })();
+const TB_STEPS = { t: [2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000], s: [5, 10, 20, 50, 100, 200, 500, 1000],
+                   i: [2, 5, 10, 20, 50, 100, 200, 500] };
+const X_UNIT = { t: "ms", s: "mm", i: "rec" };
+let chartX = "t";
+let chartTB = { t: "fit", s: "fit", i: "fit" };   // timebase per x channel
+let chartStep = {};                              // unit -> "auto" | step per div
+let chartZero = "auto";                          // "auto" | "centre" | "bottom"
+try {
+  const o = JSON.parse(localStorage.getItem("tw3fv.chart.scope") || "null");
+  if (o) { if (o.x) chartX = o.x; if (o.tb) chartTB = o.tb; if (o.step) chartStep = o.step; if (o.zero) chartZero = o.zero; }
+} catch (e) {}
+function scopeSave() {
+  try { localStorage.setItem("tw3fv.chart.scope", JSON.stringify({ x: chartX, tb: chartTB, step: chartStep, zero: chartZero })); } catch (e) {}
+}
+const niceStep = raw => STEPS_125.find(v => v >= raw) || STEPS_125[STEPS_125.length - 1];
+const fmtV = v => Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toFixed(1) : v.toFixed(2);
+const fmtStep = v => v >= 1 ? String(v) : v.toFixed(2).replace(/0+$/, "");
+
+// The channel picker under the chart: one chip per available channel,
+// then the timebase and one scale select per unit in use.
+function chartBar() {
+  const el = document.getElementById("chartbar");
+  if (!runs.length || runs[cur].kind === "sweep") { el.style.display = "none"; return; }
+  const R = runs[cur], sel = chartSelection(R), cat = channelCatalogue(R);
+  el.style.display = "";
+  el.innerHTML = "";
+  const head = document.createElement("span");
+  head.textContent = `chart (${R.logkind} log) `; head.style.color = "#8a93a2";
+  head.title = "Scope: 10 divisions across, 8 up. Wheel over the chart = timebase, click = move the cursor, tags show each trace's value at the cursor in its unit.";
+  el.appendChild(head);
+  cat.forEach(ch => {
+    const l = document.createElement("label");
+    const cb = document.createElement("input"); cb.type = "checkbox";
+    cb.checked = sel.ids.has(ch.id);
+    cb.onchange = () => { if (cb.checked) sel.ids.add(ch.id); else sel.ids.delete(ch.id); chartSelSave(); chartBar(); draw(); };
+    l.appendChild(cb); l.appendChild(document.createTextNode(ch.name)); l.title = ch.lab + (ch.unit === "raw" ? "" : ` [${ch.unit}]`);
+    l.className = "chip";
+    el.appendChild(l);
+  });
+  const mkSel = (labelText, opts, value, onchange, title) => {
+    const l = document.createElement("label"); l.style.color = "#a8b2c0"; if (title) l.title = title;
+    l.appendChild(document.createTextNode(labelText + " "));
+    const se = document.createElement("select");
+    opts.forEach(([v, t]) => { const o = document.createElement("option"); o.value = v; o.textContent = t; se.appendChild(o); });
+    se.value = String(value); se.onchange = () => onchange(se.value);
+    l.appendChild(se); el.appendChild(l); return se;
+  };
+  mkSel("x", [["i", "record"], ["t", "t_ms"], ["s", "s"]], chartX, v => { chartX = v; scopeSave(); chartBar(); draw(); });
+  mkSel("/div", [["fit", "fit"], ...TB_STEPS[chartX].map(v => [v, v + " " + X_UNIT[chartX]])], chartTB[chartX],
+        v => { chartTB[chartX] = v === "fit" ? "fit" : +v; scopeSave(); draw(); },
+        "Timebase per division (10 divisions across). 'fit' = the whole run. A fixed timebase windows the run around the cursor -- the seek slider scrolls it.");
+  const units = [...new Set(cat.filter(ch => sel.ids.has(ch.id) && ch.unit !== "flag").map(ch => ch.unit))];
+  for (const u of units)
+    mkSel(u, [["auto", "auto"], ...STEPS_125.map(v => [v, fmtStep(v) + "/div"])], chartStep[u] || "auto",
+          v => { chartStep[u] = v === "auto" ? "auto" : +v; scopeSave(); draw(); },
+          `Scale per division for every trace in ${u} (8 divisions up). 'auto' = a 1-2-5 step that fits the visible data.`);
+  mkSel("zero", [["auto", "auto"], ["centre", "centre"], ["bottom", "bottom"]], chartZero,
+        v => { chartZero = v; scopeSave(); draw(); },
+        "Where the zero line sits: auto = on whichever division fits the data, centre = 4 divisions up, bottom = the bottom line.");
+}
+
+// Extracted so sweep runs get the same treatment: the wobble-against-trend
+// reading is about yaw over DISTANCE, and both log kinds carry `s`.
+function trendFit(rec) {
+  const TREND_MM = 240;
+  for (let i = 0; i < rec.length; i++) {
+    let j0 = i, j1 = i;
+    while (j0 > 0 && rec[i].s - rec[j0].s < TREND_MM / 2) j0--;
+    while (j1 < rec.length - 1 && rec[j1].s - rec[i].s < TREND_MM / 2) j1++;
+    let n = 0, sx = 0, sy = 0, sxx = 0, sxy = 0, prev = null, unwrapped = 0;
+    for (let j = j0; j <= j1; j++) {
+      // unwrap so a run through +-180 does not fabricate a 360 deg trend
+      if (prev === null) unwrapped = rec[j].yaw;
+      else {
+        let d = rec[j].yaw - prev;
+        while (d > 180) d -= 360;
+        while (d < -180) d += 360;
+        unwrapped += d;
+      }
+      prev = rec[j].yaw;
+      const X = rec[j].s - rec[i].s;
+      n++; sx += X; sy += unwrapped; sxx += X * X; sxy += X * unwrapped;
+      if (j === i) rec[i]._yu = unwrapped;
+    }
+    const den = n * sxx - sx * sx;
+    const b = Math.abs(den) > 1e-9 ? (n * sxy - sx * sy) / den : 0;
+    const a = (sy - b * sx) / n;
+    rec[i].ytr = n >= 8 ? rec[i]._yu - a : 0;   // deg off the local trend
+    rec[i].kap = b;                             // trend curvature, deg/mm
+  }
+}
+
+// ======================================================================
+// SWEEP DUMPS ('sweep.dump' from LoopSweep) -- a different animal
+// ======================================================================
+//
+// A flight log is one time-sampled run through a maze it also tells you the
+// shape of. A sweep dump is neither:
+//
+//   DISTANCE-SAMPLED, not time-sampled. There is no `t` column at all; a
+//   record every 4 mm of path. Play needs a clock, so one is synthesised
+//   from ds/v -- correct to the extent v is, which is enough to watch.
+//
+//   ONLY TWO BEAMS. Side left and right. No FL/FR, so nothing front-facing
+//   is drawn and the front-convention machinery does not apply.
+//
+//   CORNER WINDOWS ONLY. Each corner logs the corner cell and one cell
+//   either side; between windows there is a gap of a few hundred mm of
+//   straight that was driven but never sampled. The reconstruction steps
+//   straight through it -- the mouse really did travel that far on that
+//   heading -- but the trail is drawn DASHED there, because it is an
+//   assumption and not data.
+//
+//   `s` RESTARTS EVERY LOOP, and the ring closes, so every loop starts from
+//   the same physical place. One run per loop therefore OVERLAYS, which is
+//   the whole point: the ring is hand-built and uneven but repeatable, so
+//   the only trustworthy readings are differences between loops flown over
+//   the same geometry (bert, 2026-08-20).
+//
+//   THE MAZE IS KNOWN A PRIORI. There is no MAZE_V/MAZE_H preamble because
+//   there does not need to be one: the rig is a 6x6 perimeter ring, always,
+//   and it is drawn from the geometry rather than inferred from beams.
+const SWEEP_SIDE = 900;        // corner centre to corner centre, 5 cells
+const SWEEP_FIRST_LEG = 360;   // 2 cells from the launch point to corner 0
+const SWEEP_RING_N = 6;        // 6x6 perimeter
+// Loops beyond this load hidden rather than invisible-by-clutter. A 50-loop
+// session would otherwise put 50 checkboxes and 50 ghost trails on screen.
+// Stated, not silent: the run list says how many were hidden.
+const SWEEP_MAX_VISIBLE_LOOPS = 8;
+
+function isSweepDump(text) {
+  return /^#\s*sweep session/m.test(text) ||
+         /^T,off,s,v,yaw/m.test(text) || /^S,loop,corner,dir/m.test(text);
+}
+
+// The ring, as walls. Outer perimeter of the 6x6 plus the perimeter of the
+// solid 4x4 block in the middle; the corridor is the one-cell gap between.
+// Corridor centrelines therefore sit at 90 and 990, and the four corner cell
+// centres at (90,90), (90,990), (990,990), (990,90) -- 900 mm apart, which is
+// SWEEP_SIDE. That agreement is the check that this frame is the right one.
+function sweepRingWalls() {
+  const N = SWEEP_RING_N, C = CELL, W = [];
+  for (let i = 0; i < N; i++) {
+    W.push([i*C, 0, i*C + C, 0]);
+    W.push([i*C, N*C, i*C + C, N*C]);
+    W.push([0, i*C, 0, i*C + C]);
+    W.push([N*C, i*C, N*C, i*C + C]);
+  }
+  const a = C, b = (N - 1) * C;          // the block spans 180..900
+  for (let i = 1; i < N - 1; i++) {
+    W.push([i*C, a, i*C + C, a]);
+    W.push([i*C, b, i*C + C, b]);
+    W.push([a, i*C, a, i*C + C]);
+    W.push([b, i*C, b, i*C + C]);
+  }
+  return W;
+}
+
+// Where a loop starts, and which way round. RIGHT turns (dir=R) are clockwise
+// with the inner block on the mouse's right, so it launches heading NORTH up
+// the west corridor with its first corner at the north-west. LEFT turns
+// mirror that to the east corridor. Heading north is yaw 0, which is exactly
+// what the trace carries -- sweep yaw is relative to the loop's launch
+// heading, so it drops into this frame with no offset.
+function sweepStart(left) {
+  return { x: left ? (SWEEP_RING_N - 1) * CELL + 90 : 90,
+           y: (SWEEP_RING_N - 1) * CELL + 90 - SWEEP_FIRST_LEG,
+           th: 0 };
+}
+
+// ---- FOLDING THE FOUR CORNERS ONTO ONE -----------------------------------
+//
+// Every corner of the ring is the same manoeuvre performed in a different
+// place and pointing a different way. Fold them -- rotate and translate each
+// one into corner 0's frame -- and a loop stops being four separate corners
+// and becomes four repeats of one, with 8 loops behind it: 32 traces of the
+// same 90 degrees, superimposed.
+//
+// The transform is RIGID, so it changes nothing that matters: shape, exit
+// offset and heading error all survive a rotation intact. What it does is put
+// them where the eye can compare them.
+//
+// It also turns the rig's unevenness into data rather than noise. The maze is
+// hand-built, so the four corners differ -- but they differ CONSISTENTLY, lap
+// after lap. Folded, the wall clouds of the four corners land in one place and
+// any spread between them IS the rig's geometry, measured, instead of an
+// unknown smeared through every pooled average.
+//
+// Entry heading into corner k is k * 90 degrees (sign by direction), and the
+// corner-cell centres are FIRST_LEG then SIDE apart along the way round.
+function sweepCornerFrames(left) {
+  const st = sweepStart(left);
+  const sgn = left ? 1 : -1;
+  let th = st.th;
+  let cx = st.x + SWEEP_FIRST_LEG * -Math.sin(th);
+  let cy = st.y + SWEEP_FIRST_LEG * Math.cos(th);
+  const out = [];
+  for (let k = 0; k < 4; k++) {
+    out.push({ cx, cy, th });          // th = heading ENTERING corner k
+    th += sgn * Math.PI / 2;
+    cx += SWEEP_SIDE * -Math.sin(th);
+    cy += SWEEP_SIDE * Math.cos(th);
+  }
+  return out;
+}
+
+// Map a world point in corner k's frame into corner 0's. Rotating by -th_k
+// about the corner centre sends "straight ahead into corner k" to "straight
+// ahead into corner 0", which is the whole trick.
+function sweepFoldPoint(F, F0, x, y) {
+  const dx = x - F.cx, dy = y - F.cy;
+  const c = Math.cos(F.th), s = Math.sin(F.th);
+  return [ F0.cx + dx * c + dy * s,
+           F0.cy - dx * s + dy * c ];
+}
+
+// Where s = 0 sits for each corner: the ENTRY TANGENT POINT, taken from the
+// executor's own in_arc flag where the trace has one and from the nominal
+// path geometry where it does not. Everything folded is measured from here,
+// so a corner with no arc samples still lands on the same axis instead of
+// silently sliding by its own radius.
+function sweepArcEntryS(R, k) {
+  return (SWEEP_FIRST_LEG - R) + k * (R * Math.PI / 2 + SWEEP_SIDE - 2 * R);
+}
+
+// The commanded corner in the canonical frame: in from the south, one arc,
+// out. Drawn instead of the whole ring when folded, because four overlaid
+// copies of the ring would be four copies of the same line.
+function sweepIdealCorner(R, left) {
+  const F0 = sweepCornerFrames(left)[0];
+  const LEAD = 320;
+  let x = F0.cx, y = F0.cy - LEAD, th = 0;
+  const sgn = left ? 1 : -1;
+  const pts = [[x, y]];
+  const straight = L => { x += L * -Math.sin(th); y += L * Math.cos(th);
+                          pts.push([x, y]); };
+  straight(LEAD - R);
+  const n = 24, dth = sgn * (Math.PI / 2) / n, ds = R * (Math.PI / 2) / n;
+  for (let i = 0; i < n; i++) {
+    x += ds * -Math.sin(th + dth / 2); y += ds * Math.cos(th + dth / 2);
+    th += dth; pts.push([x, y]);
+  }
+  straight(LEAD);
+  return pts;
+}
+
+// The path the mouse was TOLD to fly, in the same frame as the
+// reconstruction. Drawn under the trail, this is what makes a 25 mm exit
+// offset something you can see rather than something you read in a column.
+function sweepIdealPath(R, left) {
+  const st = sweepStart(left);
+  let x = st.x, y = st.y, th = st.th;
+  const sgn = left ? 1 : -1;
+  const pts = [[x, y]];
+  const straight = L => { x += L * -Math.sin(th); y += L * Math.cos(th);
+                          pts.push([x, y]); };
+  const arc = () => {
+    const n = 24, dth = sgn * (Math.PI / 2) / n, ds = R * (Math.PI / 2) / n;
+    for (let i = 0; i < n; i++) {
+      x += ds * -Math.sin(th + dth / 2); y += ds * Math.cos(th + dth / 2);
+      th += dth; pts.push([x, y]);
+    }
+  };
+  straight(SWEEP_FIRST_LEG - R);
+  for (let k = 0; k < 4; k++) { arc(); if (k < 3) straight(SWEEP_SIDE - 2*R); }
+  straight(SWEEP_SIDE - SWEEP_FIRST_LEG - R);
+  return pts;
+}
+
+// Header-driven column parsing. The dump format has moved four times in five
+// runs (lat_x10 -> ay_mm_s2, arc_turn added, arc_ay added) and will move
+// again, so nothing here counts columns: it reads the names off the `S,loop,`
+// and `T,off,` header rows and looks fields up by name. A dump from run 117
+// and one from run 120 both load; the fields that do not exist come back
+// undefined and the code that wants them says so.
+// Column names off a header row. Trimmed, and cut at the first space: the
+// firmware has more than once ended a header line with an explanatory tail,
+// and "fail   <- loop ended BETWEEN corners" is not a field name.
+function hdrNames(p) {
+  return p.slice(1).map(k => String(k).trim().split(/\s/)[0]);
+}
+
+function parseSweep(name, text) {
+  let sHdr = null, tHdr = null, qHdr = null, dir = "R", ayZero = 0, session = 0;
+  let trimMm = 0, trimAll = false, gains = "";
+  let comboIx, loopsDone;
+  const S = [], T = [], X = [], Q = [];
+  let xHdr = null;
+  for (const line of text.split(/\r?\n/)) {
+    const t = line.trim();
+    if (!t) continue;
+    if (t[0] === "#") {
+      let m;
+      if ((m = /dir=([LR])/.exec(t))) dir = m[1];
+      if ((m = /ay_zero=([+-]?\d+)/.exec(t))) ayZero = +m[1];
+      if ((m = /sweep session (\d+)/.exec(t))) session = +m[1];
+      if ((m = /arc_trim=([+-]?[\d.]+)/.exec(t))) trimMm = +m[1];
+      if ((m = /combo_ix=(\d+)/.exec(t))) comboIx = +m[1];
+      if ((m = /loops_done=(\d+)/.exec(t))) loopsDone = +m[1];
+      // WHICH corners carried the trim. Runs 120-121 alternated it on
+      // (loop + corner) parity, so the answer was a crossover; from run 122 it
+      // is on every corner, so the answer is the plain mean. Same field in the
+      // header, completely different statistic -- read the mode off the dump
+      // rather than assuming, because a crossover computed over an all-corners
+      // run returns a confident zero that means nothing at all.
+      if (/arc_trim=/.test(t)) trimAll = /on ALL corners/i.test(t);
+      if (/^#\s*gains/.test(t)) gains = t.replace(/^#\s*/, "");
+      continue;
+    }
+    const p = t.split(",");
+    if (p[0] === "S") {
+      if (p[1] === "loop") { sHdr = hdrNames(p); continue; }
+      if (!sHdr) continue;
+      const o = {}; sHdr.forEach((k, i) => o[k] = p[i + 1]);
+      S.push(o);
+    } else if (p[0] === "X") {
+      // A LOOP EVENT: the loop ended between corner windows, so there is no
+      // corner to describe and these carry the state at the stop instead.
+      // Kept out of S entirely -- pooling one into the corner statistics
+      // would be averaging a crash site with a measurement.
+      if (p[1] === "loop") { xHdr = hdrNames(p); continue; }
+      if (!xHdr) continue;
+      const o = {}; xHdr.forEach((k, i) => o[k] = p[i + 1]);
+      X.push(o);
+    } else if (p[0] === "Q") {
+      // A LAUNCH ROW: one per loop, written before it moves. Carries what the
+      // corridor squaring measured -- eps is the fitted heading error to the
+      // wall, which is the gyro's drift made visible. Like X, kept out of S:
+      // it is not a corner and must never be pooled into corner statistics.
+      if (p[1] === "loop") { qHdr = hdrNames(p); continue; }
+      if (!qHdr) continue;
+      const o = {}; qHdr.forEach((k, i) => o[k] = p[i + 1]);
+      Q.push(o);
+    } else if (p[0] === "T") {
+      if (p[1] === "off") { tHdr = hdrNames(p); continue; }
+      if (!tHdr) continue;
+      const o = {}; tHdr.forEach((k, i) => o[k] = +p[i + 1]);
+      T.push(o);
+    }
+  }
+  if (!S.length || !T.length) return null;
+  const left = dir === "L";
+
+  // Which corner does each trace record belong to? The summary row carries
+  // the byte offset of its own trace block, so the blocks partition the
+  // trace region and a record lands in the last block that starts at or
+  // before it. Corners that were never traced (no TRACED bit) have
+  // trace_off 0, which is also a VALID offset for the first traced corner --
+  // hence the flag test rather than a truthiness test.
+  const traced = S.filter(r => (parseInt(r.flags, 16) & 0x80) !== 0)
+                  .map(r => ({ row: r, off: +r.trace_off }))
+                  .sort((a, b) => a.off - b.off);
+  if (!traced.length) return null;
+
+  const byLoop = new Map();
+  let bi = 0;
+  for (const t of T) {
+    while (bi + 1 < traced.length && traced[bi + 1].off <= t.off) bi++;
+    const row = traced[bi].row;
+    const lp = +row.loop;
+    if (!byLoop.has(lp)) byLoop.set(lp, { rows: [], recs: [] });
+    byLoop.get(lp).recs.push({ t: t, s_row: row });
+  }
+  for (const r of S) {
+    const lp = +r.loop;
+    if (!byLoop.has(lp)) byLoop.set(lp, { rows: [], recs: [] });
+    byLoop.get(lp).rows.push(r);
+  }
+
+  const out = [];
+  for (const [loopIx, L] of [...byLoop.entries()].sort((a, b) => a[0] - b[0])) {
+    if (!L.recs.length) continue;
+    const R0 = +(L.rows[0] || L.recs[0].s_row).R;
+    const v0 = +(L.rows[0] || L.recs[0].s_row).v_arc;
+    const rec = [];
+    let clock = 0;
+    for (let i = 0; i < L.recs.length; i++) {
+      const t = L.recs[i].t, prev = i ? L.recs[i - 1].t : null;
+      const ds = prev ? t.s - prev.s : 0;
+      // Synthetic clock: play needs one and the dump has none. A backwards
+      // step (a new corner block that starts before the previous one ended,
+      // which cannot happen, or a corrupt row) contributes nothing rather
+      // than winding the clock back.
+      if (ds > 0 && t.v > 20) clock += ds / t.v * 1000;
+      const lo = t.left, ri = t.right;
+      const lok = lo > 0 && lo < 255, rok = ri > 0 && ri < 255;
+      // lat is DERIVED, not logged: v4 of the record traded lat_x10 away for
+      // ay_mm_s2 precisely because this is recoverable. Both walls -> the
+      // half difference; one wall -> against the nominal half corridor.
+      let lat = null;
+      if (lok && rok) lat = (ri - lo) / 2;
+      else if (lok) lat = 84 - lo;
+      else if (rok) lat = ri - 84;
+      rec.push({
+        t: clock, s: t.s, v: t.v, yaw: t.yaw, yerr: t.yaw_err,
+        om: t.omega,
+        // 'ay' here is LATERAL SPECIFIC FORCE in mm/s^2 (run 119 onward), not
+        // the flight log's raw accel byte. The chart branches on kind so the
+        // two are never drawn on the same scale.
+        ay: t.ay !== undefined ? t.ay : 0,
+        adem: t.a_dem !== undefined ? t.a_dem : t.v * t.omega * Math.PI / 180,
+        lat: lat,
+        // Pre-v4 dumps still carry lat directly; prefer the logged one.
+        L: lok ? lo : 255, R: rok ? ri : 255, FL: 255, FR: 255,
+        corner: t.corner,
+        flags: (t.in_arc & 1),          // bit0 in_arc; bit1 stays clear so the
+                                        // body never paints itself IMPACT red
+        gap: prev ? (t.s - prev.s) > 40 : false,
+        ax: 0, wf: 0, slide: 0, ohead: 0,
+      });
+    }
+    // Where each corner's window starts, so a summary row can be clicked to
+    // jump to the corner it describes.
+    // corner 255 is a BREADCRUMB, not a corner: sparse corridor samples that
+    // exist so a loop ending between windows still says where it got to.
+    // They belong on the trail and nowhere else.
+    const CRUMB = 255;
+    rec.forEach(r => { if (r.corner === CRUMB) r.crumb = true; });
+    const cornerStart = new Map();
+    rec.forEach((r, i) => {
+      if (r.crumb) return;
+      if (!cornerStart.has(r.corner)) cornerStart.set(r.corner, i);
+    });
+
+    const st = sweepStart(left);
+    const pose = [], hits = [];
+    let x = st.x, y = st.y;
+    for (let i = 0; i < rec.length; i++) {
+      const r = rec[i];
+      const ds = i ? r.s - rec[i - 1].s : r.s;   // i=0: advance from launch
+      const th0 = (i ? rec[i - 1].yaw : 0) * Math.PI / 180;
+      const th = r.yaw * Math.PI / 180;
+      // Midpoint heading over the step. Across a 400 mm unsampled gap the
+      // endpoint heading alone would swing the whole straight sideways.
+      const thm = th0 + Math.atan2(Math.sin(th - th0), Math.cos(th - th0)) / 2;
+      x += ds * -Math.sin(thm); y += ds * Math.cos(thm);
+      pose.push({ x, y, th });
+      const c = Math.cos(th), s2 = Math.sin(th);
+      const off = Math.abs((((r.yaw + 45) % 90) + 90) % 90 - 45);
+      for (const b of BEAMS) {
+        const d = r[b.col];
+        if (d === 255 || d === 0 || d === undefined) continue;
+        const bx = x + b.ox * -s2 + b.oy * -c;
+        const by = y + b.ox * c + b.oy * -s2;
+        const ba = th + b.a * Math.PI / 180;
+        const rb = beamRange(b, d, true);
+        hits.push({ x: bx + rb * -Math.sin(ba), y: by + rb * Math.cos(ba),
+                    i, color: b.color, off });
+      }
+    }
+    trendFit(rec);
+
+    // ---- folded copies, in corner 0's frame ----
+    // Built here rather than at draw time: the transform is per-corner and
+    // fixed, so paying for it once per load beats paying for it per frame.
+    const frames = sweepCornerFrames(left);
+    const F0 = frames[0];
+    // s at each corner's entry tangent -- measured where the trace shows the
+    // arc, nominal where it does not (see sweepArcEntryS).
+    const arcS0 = new Map();
+    for (const [k, i0] of cornerStart) {
+      let hit = null;
+      for (let i = i0; i < rec.length && rec[i].corner === k; i++)
+        if (rec[i].flags & 1) { hit = rec[i].s; break; }
+      arcS0.set(k, hit !== null ? hit : sweepArcEntryS(R0, k));
+    }
+    for (const r of rec) r.sArc = r.crumb ? NaN
+                                        : r.s - (arcS0.get(r.corner) ?? 0);
+
+    const poseF = [], hitsF = [];
+    for (let i = 0; i < rec.length; i++) {
+      const k = rec[i].corner, F = rec[i].crumb ? null : frames[k];
+      if (!F) { poseF.push(pose[i]); continue; }   // breadcrumb: no frame
+      const [fx, fy] = sweepFoldPoint(F, F0, pose[i].x, pose[i].y);
+      poseF.push({ x: fx, y: fy, th: pose[i].th - F.th });
+    }
+    for (const h of hits) {
+      if (rec[h.i].crumb) continue;
+      const F = frames[rec[h.i].corner] || F0;
+      const [fx, fy] = sweepFoldPoint(F, F0, h.x, h.y);
+      hitsF.push({ x: fx, y: fy, i: h.i, color: h.color, off: h.off });
+    }
+
+    out.push({
+      kind: "sweep", name: `${name} L${loopIx}`, text: null,
+      rec, pose, hits, poseF, hitsF, walls: sweepRingWalls(),
+      ideal: sweepIdealPath(R0, left),
+      idealF: sweepIdealCorner(R0, left),
+      sweep: { loopIx, dir, left, R: R0, v: v0, session, ayZero, trimMm, trimAll,
+               events: X.filter(e => +e.loop === loopIx), allEvents: X,
+               launch: Q.find(e => +e.loop === loopIx) || null, allLaunch: Q,
+               comboIx, loopsDone,
+               gains, rows: L.rows, allRows: S, cornerStart,
+               // Dumps before run 119 have no lateral accelerometer. Say so
+               // rather than drawing a flat zero that reads as "the tyres
+               // made no force at all".
+               hasAy: tHdr.indexOf("ay") >= 0 },
+      visible: out.length < SWEEP_MAX_VISIBLE_LOOPS,
+      frontFromCentre: true, frontWhy: "sweep dump — no front beams",
+      color: PALETTE[(runs.length + out.length) % PALETTE.length],
+    });
+  }
+  if (out.length > SWEEP_MAX_VISIBLE_LOOPS)
+    out.hiddenNote = `${out.length - SWEEP_MAX_VISIBLE_LOOPS} further loops ` +
+                     `loaded but hidden — tick them to show`;
+  return out;
+}
+
+// ---- the crossover the run-120 grid was built to answer -------------------
+// exit_lat on corners where (loop + corner) is odd carried a deliberate
+// SWEEP_ARC_TRIM_MM offset to the arc start; the even ones are the control.
+// Starting an arc d mm late puts the exit d mm outside, so the difference of
+// the two means IS the answer, and it is a crossover so both the across-loop
+// drift and the uneven hand-built ring cancel out of it.
+function sweepCrossover(rows) {
+  const a = [], b = [];
+  for (const r of rows) {
+    if (r.fail !== "ok") continue;
+    const x = +r.exit_lat;
+    if (!isFinite(x)) continue;
+    (((+r.loop + +r.corner) & 1) ? a : b).push(x);
+  }
+  const mean = z => z.reduce((s, v) => s + v, 0) / z.length;
+  const se = z => {
+    if (z.length < 2) return NaN;
+    const m = mean(z);
+    return Math.sqrt(z.reduce((s, v) => s + (v - m) * (v - m), 0) /
+                     (z.length - 1) / z.length);
+  };
+  if (!a.length || !b.length) return null;
+  return { trimmed: mean(a), clean: mean(b), n1: a.length, n2: b.length,
+           diff: mean(a) - mean(b),
+           se: Math.sqrt(se(a) * se(a) + se(b) * se(b)) };
+}
+
+// When every corner carries the same trim there is no control group, so the
+// statistic is just the mean exit and how far it still sits from centred.
+function sweepMeanExit(rows) {
+  const z = rows.filter(r => r.fail === "ok").map(r => +r.exit_lat)
+                .filter(isFinite);
+  if (!z.length) return null;
+  const m = z.reduce((s, v) => s + v, 0) / z.length;
+  const sd = z.length > 1
+    ? Math.sqrt(z.reduce((s, v) => s + (v - m) * (v - m), 0) / (z.length - 1))
+    : NaN;
+  return { mean: m, n: z.length, se: sd / Math.sqrt(z.length),
+           ok: z.length, all: rows.length };
+}
+
+function sweepTable() {
+  const el = document.getElementById("sweepinfo");
+  const A = runs[cur];
+  if (!A || A.kind !== "sweep") { el.style.display = "none"; return; }
+  el.style.display = "";
+  const S = A.sweep;
+  const sgn = v => (v >= 0 ? "+" : "") + v.toFixed(1);
+  const sgn2 = v => (v >= 0 ? "+" : "") + v.toFixed(2);
+  let head = `session ${S.session}  dir=${S.dir}  ay_zero ${S.ayZero} mm/s²` +
+             (S.trimMm
+               ? `  arc_trim ${S.trimMm > 0 ? "+" : ""}${S.trimMm} mm ` +
+                 (S.trimAll ? `on EVERY corner` : `when (loop+corner) is odd`)
+               : "  no arc trim");
+  if (S.trimMm && S.trimAll) {
+    const m = sweepMeanExit(S.allRows);
+    if (m)
+      head += `\nMEAN EXIT  ${sgn(m.mean)} ± ${m.se.toFixed(1)} mm ` +
+              `over ${m.n} clean corners of ${m.all}` +
+              `   [near 0 means the standing offset was one wrong constant ` +
+              `in the gate geometry]`;
+  } else {
+    const x = sweepCrossover(S.allRows);
+    if (x) {
+      head += `\nCROSSOVER  trimmed ${x.trimmed.toFixed(1)} (n=${x.n1})   ` +
+              `clean ${x.clean.toFixed(1)} (n=${x.n2})   ` +
+              `difference ${sgn(x.diff)} ± ${x.se.toFixed(1)} mm`;
+      if (S.trimMm)
+        head += `   [placement predicts ${S.trimMm}; no effect predicts 0]`;
+    }
+  }
+  // THE CORRIDOR FIT, across the whole session.
+  //
+  // frame_corr is the drift channel, NOT eps. Squaring zeroes the frame
+  // against the corridor at the start of every lap, so frame_corr is the
+  // gyro error accumulated over ONE lap. eps is the mouse's TRAVEL direction
+  // relative to the wall, and on the final leg the lateral servo is still
+  // converging -- run 142 read eps -1.62 with lat0 +3.6 mm, which is a mouse
+  // settling back to centre, not a gyro. Both are shown; only frame_corr
+  // gets the verdict.
+  //
+  // Mean +/- se, because the question is whether the CENTRE is off zero.
+  if (S.allLaunch && S.allLaunch.length) {
+    const fit = S.allLaunch.filter(q => q.square === "squared");
+    const stat = key => {
+      const v = fit.map(q => +q[key]).filter(x => isFinite(x));
+      if (!v.length) return null;
+      const m = v.reduce((a, b) => a + b, 0) / v.length;
+      const sd = v.length > 1
+        ? Math.sqrt(v.reduce((a, b) => a + (b - m) * (b - m), 0) / (v.length - 1))
+        : 0;
+      const se = v.length > 1 ? sd / Math.sqrt(v.length) : 0;
+      const same = Math.max(v.filter(x => x < 0).length,
+                            v.filter(x => x > 0).length);
+      return { m, sd, se, n: v.length, same };
+    };
+    const fc = stat("frame_corr"), ep = stat("eps");
+    if (fc) {
+      const off = fc.n > 1 && Math.abs(fc.m) > 2 * fc.se;
+      head += `\nGYRO PER LAP  frame_corr ${sgn2(fc.m)} ± ${fc.se.toFixed(2)}° ` +
+              `over ${fc.n} laps (sd ${fc.sd.toFixed(2)}, same sign ` +
+              `${fc.same}/${fc.n})   ` +
+              `${fit.length}/${S.allLaunch.length} squared`;
+      if (off) {
+        // Bias accumulates with time, scale with angle turned. One direction
+        // cannot separate them; flying the ring the other way can, because a
+        // scale error flips sign with the turn and a bias does not.
+        head += `\n              [centre is off zero — the fused frame ` +
+                `rotates ${sgn2(fc.m)}° per lap against the corridor. ` +
+                `Scale error would be ${(-fc.m / 360 * 100).toFixed(3)}%; ` +
+                `fly dir=R to tell scale from bias]`;
+      } else {
+        head += `\n              [consistent with zero — no measurable ` +
+                `per-lap gyro error]`;
+      }
+    }
+    if (ep)
+      head += `\n              eps ${sgn2(ep.m)} ± ${ep.se.toFixed(2)}° ` +
+              `(travel angle to the wall — reads the lateral servo ` +
+              `converging, not drift)`;
+  }
+  // WHY IT STOPPED, at the top where it will actually be read. A session that
+  // ends without one of these lines ended without the firmware noticing --
+  // check loops_done against the last logged loop before blaming the path.
+  if (S.allEvents && S.allEvents.length) {
+    for (const e of S.allEvents) {
+      if (e.fail === "ramp") {
+        // Declined before it flew: the rail could not deliver that corner, so
+        // there is no stop state to report and calling it a crash would be
+        // wrong. It IS a result and belongs on screen.
+        head += `\nDECLINED  loop ${e.loop}  R${e.R} v${e.v_arc} slew_ix ` +
+                `${e.slew_ix}  — the rate ramp does not fit inside the arc, ` +
+                `so it was never flown`;
+        continue;
+      }
+      const lat = +e.lat, prev = e.lat_prev === undefined ? NaN : +e.lat_prev;
+      // A stop that arrives from nowhere is an artefact; one that arrives
+      // from an already-large lateral is the mouse genuinely running out of
+      // corridor. The previous packet is what tells them apart, so it is on
+      // the line rather than three columns to the right.
+      const jump = isFinite(prev)
+        ? (Math.abs(lat) - Math.abs(prev) > 20
+            ? `  ← JUMPED from ${prev.toFixed(1)} in one packet, so it is an `
+              + `artefact, not a drift`
+            : `  (previous packet ${prev.toFixed(1)})`)
+        : "";
+      head += `\nSTOPPED  loop ${e.loop}  R${e.R} v${e.v_arc}  ` +
+              `${String(e.fail || "?").toUpperCase()} at s=${e.at_s} mm, ` +
+              `heading for corner ` +
+              `${e.to_corner}  —  lat ${lat.toFixed(1)} (${e.lat_src}), ` +
+              `yaw_err ${(+e.yaw_err).toFixed(2)}°, beams L${e.left}/R${e.right}, ` +
+              `${e.loop_ms} ms into the loop${jump}`;
+    }
+  } else if (S.loopsDone !== undefined && S.comboIx !== undefined) {
+    const lastLoop = Math.max(...S.allRows.map(r => +r.loop));
+    if (S.loopsDone <= lastLoop)
+      head += `\nNO STOP RECORD, and loops_done (${S.loopsDone}) has not ` +
+              `advanced past the last logged loop (${lastLoop}) — the ` +
+              `firmware never registered a failure, so the run ended without ` +
+              `it noticing. Suspect power, not path.`;
+  }
+  if (!S.hasAy)
+    head += `\nno lateral accelerometer in this dump (pre-run-119) — ` +
+            `ay and arc_ay read as absent, not as zero`;
+  // Say this once, on screen, because it is the thing most likely to be
+  // misread: the trail is DEAD RECKONED from yaw and s, and the open question
+  // since run 117 is that this pose and the wall readings disagree by ~25 mm
+  // at a corner exit. So the wall cloud is not ground truth here -- it is a
+  // picture of that disagreement. Measured against the ring, hits land a
+  // median 14 mm off the drawn wall lines, of which ~6 is the wall FACE
+  // sitting 6 mm inside the grid line and the rest is the argument itself.
+  head += `\npose is dead-reckoned from yaw × s — the wall cloud shows where ` +
+          `the beams say the walls are IF that pose is right, and the whole ` +
+          `open question is that it may not be`;
+  el.textContent = "";
+  el.append(document.createTextNode(head + `\nloop ${S.loopIx}:  `
+            + `(click a corner to jump to it)\n`));
+  for (const r of S.rows) {
+    const trim = S.trimAll ? "TRIM"
+              : (((+r.loop + +r.corner) & 1) ? "TRIM" : "  . ");
+    const line =
+      `  ${trim} c${r.corner} R${r.R} v${r.v_arc}  ` +
+      `entry ${(+r.entry_lat).toFixed(1).padStart(6)}  ` +
+      `exit ${(+r.exit_lat).toFixed(1).padStart(6)}  ` +
+      `turn ${r.arc_turn !== undefined ? (+r.arc_turn).toFixed(1) : "   -  "}  ` +
+      `ay ${r.arc_ay !== undefined ? String(r.arc_ay).padStart(6) : "     -"}` +
+      `/${r.a_dem !== undefined ? r.a_dem : "-"}  ` +
+      `gate ${(+r.gate_corr).toFixed(1).padStart(6)}  ${r.fail}`;
+    const a = document.createElement("a");
+    a.textContent = line;
+    a.href = "#";
+    a.style.color = r.fail === "ok" ? "#a8b2c0" : "#e06c75";
+    a.style.textDecoration = "none";
+    a.onclick = e => {
+      e.preventDefault();
+      const k = S.cornerStart.get(+r.corner);
+      if (k === undefined) return;
+      idx = k;
+      document.getElementById("seek").value = idx;
+      draw();
+    };
+    el.append(a, document.createTextNode("\n"));
+  }
+}
+
+function runList() {
+  chartBar();
+  const el = document.getElementById("runs");
+  if (!runs.length) {
+    el.textContent = "no runs loaded — pick a 'y' flight dump or a "
+                   + "'sweep.dump' (they overlay)";
+    return;
+  }
+  el.innerHTML = "";
+  runs.forEach((R, k) => {
+    const row = document.createElement("span");
+    row.className = "runrow" + (k === cur ? " active" : "");
+    row.style.padding = "2px 6px";
+    const sw = document.createElement("span");
+    sw.className = "sw"; sw.style.background = R.color;
+    const cb = document.createElement("input");
+    cb.type = "checkbox"; cb.checked = R.visible;
+    cb.onchange = () => { R.visible = cb.checked; draw(); };
+    const nm = document.createElement("a");
+    nm.textContent = R.name; nm.href = "#"; nm.style.color = "#d8dce2";
+    const fc = document.createElement("span");
+    if (R.kind === "sweep") {
+      const S = R.sweep;
+      fc.textContent = ` ${S.dir} R${S.R} v${S.v}`;
+      fc.title = `sweep loop ${S.loopIx}, session ${S.session}: ` +
+                 `${S.dir === "L" ? "left" : "right"} turns, radius ${S.R} mm, ` +
+                 `arc speed ${S.v} mm/s`;
+      fc.style.color = "#56b6c2";
+    } else {
+      const meas = /measured/.test(R.frontWhy);
+      fc.textContent = (R.frontFromCentre ? " front:centre" : " front:face")
+                     + (meas ? "" : "?");
+      fc.title = "Front byte read as " + (R.frontFromCentre
+        ? "forward distance from the mouse centre" : "along-beam range from the sensor face")
+        + " -- " + R.frontWhy;
+      fc.style.color = meas ? "#98c379" : "#8a93a2";
+    }
+    fc.style.fontSize = "11px";
+    let ls = null;
+    if (R.kind !== "sweep") {
+      ls = document.createElement("select");
+      ls.title = "Launch heading used to place this run's trail: " + R.launchWhy +
+                 ". A CCW lap launches EAST; change it here if the detection is wrong.";
+      for (const h of ["N", "E", "S", "W"]) {
+        const o = document.createElement("option");
+        o.value = h; o.textContent = "launch " + h;
+        if (h === R.launch) o.selected = true;
+        ls.append(o);
+      }
+      ls.style.fontSize = "11px"; ls.style.marginLeft = "4px";
+      ls.onchange = () => {
+        const N = parseRun(R.name, R.text, ls.value);
+        if (!N) return;
+        N.visible = R.visible; N.color = R.color;
+        runs[k] = N;
+        if (cur === k) idx = Math.min(idx, N.rec.length - 1);
+        runList(); draw();
+      };
+    }
+    nm.onclick = e => { e.preventDefault(); cur = k;
+      idx = Math.min(idx, R.rec.length - 1);
+      document.getElementById("seek").max = R.rec.length - 1;
+      runList(); draw(); };
+    row.append(sw, cb, nm, fc);
+    if (ls) row.append(ls);
+    el.append(row);
+  });
+  if (hiddenNote) {
+    const n = document.createElement("span");
+    n.textContent = hiddenNote;
+    n.style.color = "#8a93a2";
+    el.append(n);
+  }
+}
+// Set when a load hid part of what it read, so the omission is stated on
+// screen instead of looking like the file was short.
+let hiddenNote = "";
+
+const MAZE_MAX = 18 * 180;   // 18x18 grid ceiling; nothing plots beyond
+
+// Fold state, read in one place so bounds() and draw() can never disagree
+// about which geometry they are working in.
+function foldOn() {
+  const cb = document.getElementById("ckFold");
+  return !!(cb && cb.checked);
+}
+const poseOf = R => (foldOn() && R.poseF) ? R.poseF : R.pose;
+const hitsOf = R => (foldOn() && R.hitsF) ? R.hitsF : R.hits;
+const idealOf = R => (foldOn() && R.idealF) ? R.idealF : R.ideal;
+
+// Interactive view: scroll to zoom (about the cursor), drag to pan, double
+// -click to reset. Applied on top of the auto-fit bounds in draw().
+const view = { zoom: 1, panX: 0, panY: 0 };
+function resetView() { view.zoom = 1; view.panX = 0; view.panY = 0; }
+function bounds() {
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  // Only points within a sane maze extent expand the view -- one stray
+  // value (garbled beam or preamble) can no longer zoom out to infinity.
+  const inb = (x, y) => x >= -180 && x <= MAZE_MAX && y >= -180 && y <= MAZE_MAX;
+  const grow = (x, y) => { if (!inb(x, y)) return;
+    x0 = Math.min(x0, x); y0 = Math.min(y0, y);
+    x1 = Math.max(x1, x); y1 = Math.max(y1, y); };
+  for (const R of runs) {
+    if (!R.visible) continue;
+    for (const p of poseOf(R)) grow(p.x, p.y);
+    for (const h of hitsOf(R)) grow(h.x, h.y);
+    // Folded, the ring is not the frame any more -- only the canonical
+    // corner is -- so the far side of the ring must not pull the fit out.
+    if (!foldOn())
+      for (const w of (R.walls || [])) { grow(w[0], w[1]); grow(w[2], w[3]); }
+  }
+  if (x0 > x1) { x0 = 0; y0 = 0; x1 = 540; y1 = 540; }
+  return [x0 - 60, y0 - 60, x1 + 60, y1 + 60];
+}
+
+function draw() {
+  // The bars above and the chip bar change height as runs load, so the
+  // row is re-laid before every draw (sizing a canvas also clears it).
+  if (window.layoutRow) layoutRow();
+  const cv = document.getElementById("cv"), g = cv.getContext("2d");
+  g.clearRect(0, 0, cv.width, cv.height);
+  if (!runs.length) return;
+  const A = runs[cur];
+  // Active pose and record, hoisted: several blocks below want them, and the
+  // predicted-walls block used to reference `p` ABOVE its own declaration --
+  // a temporal-dead-zone ReferenceError that fired the moment anyone ticked
+  // that box on a log that actually had the columns. AP is the folded array
+  // when folding is on, so every block downstream draws in one frame.
+  const AP = poseOf(A);
+  const p = AP[idx], r = A.rec[idx];
+  let [x0, y0, x1, y1] = bounds();
+  // Base fit scale, then the interactive zoom/pan on top (view.*). At
+  // zoom 1 / pan 0 this is identical to the plain fit.
+  const sc0 = Math.min(cv.width / (x1 - x0), cv.height / (y1 - y0));
+  // Centre the fit in the canvas (a small rig in the tall maze pane sat at
+  // the bottom-left otherwise). A world-space shift of the origin, so the
+  // pan/zoom and the grid extents below stay consistent.
+  x0 -= (cv.width / sc0 - (x1 - x0)) / 2;
+  y0 -= (cv.height / sc0 - (y1 - y0)) / 2;
+  const sc = sc0 * view.zoom;
+  const X = x => (x - x0) * sc + view.panX;
+  const Y = y => cv.height - (y - y0) * sc + view.panY;
+  const ck = id => document.getElementById(id).checked;
+
+  if (ck("ckGrid")) {
+    g.strokeStyle = "#242a33"; g.lineWidth = 1;
+    // Iterate the VISIBLE world range so the grid fills the canvas at any
+    // zoom/pan (inverse of X/Y at the screen edges).
+    const wxL = x0 + (0 - view.panX) / sc, wxR = x0 + (cv.width - view.panX) / sc;
+    const wyB = y0 + (view.panY) / sc, wyT = y0 + (cv.height + view.panY) / sc;
+    for (let gx = Math.floor(wxL/CELL)*CELL; gx < wxR; gx += CELL)
+      { g.beginPath(); g.moveTo(X(gx), 0); g.lineTo(X(gx), cv.height); g.stroke(); }
+    for (let gy = Math.floor(wyB/CELL)*CELL; gy < wyT; gy += CELL)
+      { g.beginPath(); g.moveTo(0, Y(gy)); g.lineTo(cv.width, Y(gy)); g.stroke(); }
+  }
+  // Exact map walls (from the log preamble) -- solid, drawn under all.
+  for (const w of (A.walls || [])) {
+    g.strokeStyle = "#9aa4b2"; g.lineWidth = 3; g.lineCap = "round";
+    g.beginPath(); g.moveTo(X(w[0]), Y(w[1])); g.lineTo(X(w[2]), Y(w[3]));
+    g.stroke();
+  }
+  // Wall cloud: ALL visible runs stack -- low alpha => intensity map.
+  // Repeated geometry brightens; one-off noise stays dim.
+  if (ck("ckCloud")) {
+    const sq = ck("ckSquare"), OFF_MAX = 12;   // deg from axis-aligned
+    g.globalAlpha = Math.max(0.15, 0.5 / Math.sqrt(runs.length));
+    for (const R of runs) {
+      if (!R.visible) continue;
+      const HH = hitsOf(R);
+      const lim = R === A ? idx : HH.length;
+      for (const h of HH) {
+        if (h.i > lim) break;
+        if (sq && h.off > OFF_MAX) continue;   // see the note in parseRun
+        g.fillStyle = h.color;
+        g.fillRect(X(h.x) - 1, Y(h.y) - 1, 2, 2);
+      }
+    }
+    g.globalAlpha = 1;
+  }
+  // Predicted wall vectors: what the on-board raycast said each side beam was
+  // looking at, at the current cursor. Maze walls are axis aligned, so
+  // (axis, coord) is the whole vector -- drawn as a segment spanning the cell
+  // the hit falls in. NOTE the coord is the wall FACE, so these sit 6 mm INSIDE
+  // the grey map line rather than on it (confirmed on log 068: every value
+  // lands on 180k +/- 6). That offset is correct, not a drawing error.
+  // The commanded path, under everything else. Sweep runs only -- a flight
+  // log has no single analytic path to draw.
+  if (ck("ckIdeal") && idealOf(A)) {
+    g.strokeStyle = "#5a6472"; g.lineWidth = 1.5; g.setLineDash([7, 5]);
+    g.beginPath();
+    idealOf(A).forEach(([px, py], i) =>
+      i ? g.lineTo(X(px), Y(py)) : g.moveTo(X(px), Y(py)));
+    g.stroke(); g.setLineDash([]);
+  }
+  if (ck("ckPred") && A.rec[idx].paxL !== undefined) {
+    const pr = A.rec[idx];
+    const marks = [[pr.paxL, pr.pcoL, pr.prnL, "#e5c07b"],
+                   [pr.paxR, pr.pcoR, pr.prnR, "#e06c75"]];
+    for (const [ax, co, rn, col] of marks) {
+      if (ax !== 0 && ax !== 1) continue;
+      g.strokeStyle = col; g.lineWidth = 2; g.setLineDash([6, 4]);
+      g.beginPath();
+      if (ax === 0) {            // vertical wall at x = co
+        const c = Math.floor(p.y / CELL) * CELL;
+        g.moveTo(X(co), Y(c)); g.lineTo(X(co), Y(c + CELL));
+      } else {                   // horizontal wall at y = co
+        const c = Math.floor(p.x / CELL) * CELL;
+        g.moveTo(X(c), Y(co)); g.lineTo(X(c + CELL), Y(co));
+      }
+      g.stroke(); g.setLineDash([]);
+    }
+  }
+  // Ghost trails: full trajectories of the other runs.
+  if (ck("ckGhost")) {
+    for (const R of runs) {
+      if (!R.visible || R === A) continue;
+      const PP = poseOf(R);
+      g.strokeStyle = R.color; g.globalAlpha = 0.45; g.lineWidth = 1.2;
+      g.beginPath();
+      let open = false;
+      PP.forEach((p, i) => {
+        // Break at every untraced gap. Folded, that gap is also the seam
+        // between two corners that now sit on top of each other, so joining
+        // across it would draw a line the mouse never took.
+        if (i && R.rec[i].gap) { g.stroke(); g.beginPath(); open = false; }
+        open ? g.lineTo(X(p.x), Y(p.y)) : g.moveTo(X(p.x), Y(p.y));
+        open = true;
+      });
+      g.stroke();
+      const e = PP[PP.length - 1];
+      g.fillStyle = R.color;
+      g.fillRect(X(e.x) - 3, Y(e.y) - 3, 6, 6);
+      g.globalAlpha = 1;
+    }
+  }
+  // Active trail up to the cursor. Sweep traces cover only the corner
+  // windows, so a step can be a whole cell of unsampled straight: that
+  // travel is real but the STRAIGHT LINE across it is an assumption, and it
+  // is drawn dashed rather than pretending to be measured.
+  if (ck("ckTrail")) {
+    g.strokeStyle = A.color; g.lineWidth = 1.8;
+    g.beginPath();
+    let open = false;
+    for (let i = 0; i <= idx; i++) {
+      const p = AP[i];
+      if (i && A.rec[i].gap) { g.stroke(); g.beginPath(); open = false; }
+      open ? g.lineTo(X(p.x), Y(p.y)) : g.moveTo(X(p.x), Y(p.y));
+      open = true;
+    }
+    g.stroke();
+    // The straight-line guess across an untraced gap. Only meaningful
+    // unfolded: folded, the two ends are in different corners' frames and the
+    // segment between them is not a path at all.
+    if (!foldOn()) {
+      g.setLineDash([4, 4]); g.globalAlpha = 0.55; g.beginPath();
+      for (let i = 1; i <= idx; i++) {
+        if (!A.rec[i].gap) continue;
+        g.moveTo(X(AP[i-1].x), Y(AP[i-1].y));
+        g.lineTo(X(AP[i].x), Y(AP[i].y));
+      }
+      g.stroke(); g.setLineDash([]); g.globalAlpha = 1;
+    }
+  }
+  // Mouse body + heading.
+  g.save(); g.translate(X(p.x), Y(p.y)); g.rotate(-p.th);
+  g.fillStyle = r.flags & 2 ? "#e06c75" : "#98c379"; g.globalAlpha = 0.85;
+  g.fillRect(-35 * sc, -40 * sc, 70 * sc, 80 * sc);
+  g.globalAlpha = 1; g.strokeStyle = "#fff"; g.lineWidth = 2;
+  g.beginPath(); g.moveTo(0, 0); g.lineTo(0, -55 * sc); g.stroke();
+  g.restore();
+  // ---- ANGLE POINTER ------------------------------------------------------
+  // Solid green  = HEADING, where the mouse is pointing right now.
+  // Dashed blue  = the LOCAL TREND of that heading over ~240 mm of travel.
+  // The angle between them is the wobble, and it is the number this was built
+  // for: on a diagonal the trend should be a flat -135, so everything that
+  // is not the trend is the path (or the tracker) wandering.
+  //
+  // There is deliberately NO slip-angle readout. The pose here is
+  // reconstructed BY integrating yaw, so the track direction is identically
+  // the heading and a slip angle computed from it would be structurally zero
+  // -- a confident number that measures nothing. Slip needs a lateral
+  // observation the log does not carry.
+  if (ck("ckAngle")) {
+    const RAY = 150 * sc, PX = X(p.x), PY = Y(p.y);
+    const w = r.ytr || 0;                     // deg off the local trend
+    const tth = p.th - w * Math.PI / 180;     // the trend heading
+
+    g.setLineDash([6, 5]); g.strokeStyle = "#61afef"; g.lineWidth = 2;
+    g.beginPath(); g.moveTo(PX, PY);
+    g.lineTo(PX + RAY * -Math.sin(tth), PY - RAY * Math.cos(tth));
+    g.stroke(); g.setLineDash([]);
+
+    g.strokeStyle = Math.abs(w) > 3 ? "#e06c75" : "#98c379"; g.lineWidth = 2;
+    const hx = PX + RAY * -Math.sin(p.th), hy = PY - RAY * Math.cos(p.th);
+    g.beginPath(); g.moveTo(PX, PY); g.lineTo(hx, hy); g.stroke();
+    g.beginPath(); g.arc(hx, hy, 3.5, 0, 6.284);
+    g.fillStyle = g.strokeStyle; g.fill();
+
+    // Wedge between the two, so a small angle is still visible.
+    if (Math.abs(w) > 0.05) {
+      g.globalAlpha = 0.28; g.fillStyle = g.strokeStyle;
+      g.beginPath(); g.moveTo(PX, PY);
+      g.arc(PX, PY, RAY * 0.7, -p.th + Math.PI / 2, -tth + Math.PI / 2,
+            w < 0);
+      g.closePath(); g.fill(); g.globalAlpha = 1;
+    }
+
+    const rows = [
+      ["yaw", r.yaw.toFixed(1) + "\u00b0"],
+      ["off trend", (w >= 0 ? "+" : "") + w.toFixed(2) + "\u00b0"],
+      ["yaw_err", (r.yerr >= 0 ? "+" : "") + r.yerr.toFixed(1) + "\u00b0"],
+      ["trend turn", (r.kap * 1000).toFixed(1) + "\u00b0/m"],
+      ["omega", r.om + "\u00b0/s"],
+    ];
+    const bw = 150, bh = rows.length * 15 + 8;
+    let tx = PX + 18, ty = PY - bh - 12;
+    if (tx + bw > cv.width) tx = PX - bw - 18;
+    if (ty < 0) ty = PY + 18;
+    g.fillStyle = "rgba(16,19,24,0.82)";
+    g.fillRect(tx, ty, bw, bh);
+    g.strokeStyle = "#2c313a"; g.lineWidth = 1;
+    g.strokeRect(tx + 0.5, ty + 0.5, bw, bh);
+    g.font = "12px ui-monospace,monospace";
+    rows.forEach(([k, v], i) => {
+      g.fillStyle = "#8a93a2";
+      g.fillText(k, tx + 6, ty + 16 + i * 15);
+      g.fillStyle = (k === "off trend" && Math.abs(w) > 3) ? "#e06c75"
+                                                           : "#c8d0da";
+      g.fillText(v, tx + 82, ty + 16 + i * 15);
+    });
+  }
+
+  if (ck("ckBeams")) {
+    const c = Math.cos(p.th), s2 = Math.sin(p.th);
+    for (const b of BEAMS) {
+      const d = r[b.col];
+      if (d === 255 || d === 0) continue;
+      const bx = p.x + b.ox * -s2 + b.oy * -c;
+      const by = p.y + b.ox * c + b.oy * -s2;
+      const ba = p.th + b.a * Math.PI / 180;
+      const rb = beamRange(b, d, A.frontFromCentre);
+      g.strokeStyle = b.color; g.lineWidth = 1; g.beginPath();
+      g.moveTo(X(bx), Y(by));
+      g.lineTo(X(bx + rb * -Math.sin(ba)), Y(by + rb * Math.cos(ba)));
+      g.stroke();
+    }
+  }
+  if (A.kind === "sweep") {
+    const dem = r.adem, got = r.ay;
+    const ratio = Math.abs(dem) > 40 ? (Math.abs(got) / Math.abs(dem)) : null;
+    document.getElementById("readout").textContent =
+      `${A.name}  rec ${idx}/${A.rec.length - 1}  s ${r.s} mm  v ${r.v}  ` +
+      `corner ${r.corner}${r.flags & 1 ? " ARC" : ""}${r.gap ? " (after an untraced gap)" : ""}\n` +
+      `yaw ${r.yaw.toFixed(1)}°  yaw_err ${r.yerr.toFixed(2)}°  ` +
+      `omega ${r.om}°/s   L ${r.L === 255 ? " - " : r.L}  ` +
+      `R ${r.R === 255 ? " - " : r.R}  ` +
+      `sum ${r.L !== 255 && r.R !== 255 ? r.L + r.R : "-"}  ` +
+      `lat ${r.lat === null ? "-" : (r.lat >= 0 ? "+" : "") + r.lat.toFixed(1)}\n` +
+      (A.sweep.hasAy
+        ? `ay ${String(got).padStart(6)}  demanded ${dem.toFixed(0).padStart(6)}`
+          + ` mm/s²`
+          + (ratio === null ? "   (straight)"
+             : `   ratio ${ratio.toFixed(2)}  `
+               + (ratio < 0.85 ? "← tyres SHORT of the demand"
+                               : "← tyres holding the arc"))
+        : `demanded ${dem.toFixed(0).padStart(6)} mm/s²   `
+          + `(no measured ay in this dump — pre-run-119)`);
+    sweepTable();
+    drawChart();
+    return;
+  }
+  sweepTable();
+  document.getElementById("readout").textContent =
+    `${A.name}  rec ${idx}/${A.rec.length - 1}  t ${r.t} ms  s ${r.s}  ` +
+    `v ${r.v}  yaw ${r.yaw.toFixed(1)}  yerr ${r.yerr.toFixed(1)}  ` +
+    `slide ${r.slide}  wf ${r.wf}  om ${r.om}  ax ${r.ax} ay ${r.ay}  ` +
+    (r.ohead ? `obs_head ${r.ohead.toFixed(2)}deg  ` : "") +
+    `[${r.flags & 1 ? "ARC " : ""}${r.flags & 2 ? "IMPACT " : ""}` +
+    `${r.flags & 4 ? "CORR " : ""}${r.flags & 8 ? "LAT" : ""}]`;
+  drawChart();
+}
+
+function drawChart() {
+  const cv = document.getElementById("chart"), g = cv.getContext("2d");
+  g.clearRect(0, 0, cv.width, cv.height);
+  if (!runs.length) return;
+  const A = runs[cur], n = A.rec.length, W = cv.width, H = cv.height, mid = H / 2;
+  g.strokeStyle = "#2c313a"; g.beginPath(); g.moveTo(0, mid); g.lineTo(W, mid); g.stroke();
+  const plot = (R, get, scale, color, alpha) => {
+    g.strokeStyle = color; g.globalAlpha = alpha; g.lineWidth = 1; g.beginPath();
+    const m = R.rec.length;
+    for (let i = 0; i < m; i++) {
+      const yv = mid - get(R.rec[i]) * scale;
+      i ? g.lineTo(i / m * W, yv) : g.moveTo(0, yv);
+    }
+    g.stroke(); g.globalAlpha = 1;
+  };
+  // ---- FOLDED CHART: one arc-relative axis, every corner on it ------------
+  // x is mm from the ENTRY TANGENT POINT, not record index, so corners flown
+  // at different speeds and radii still line up: the arc starts at 0 in every
+  // trace on screen. With four corners per loop and every visible loop drawn,
+  // a full session puts dozens of repeats of the same manoeuvre on one axis,
+  // and a systematic offset separates from scatter by eye.
+  if (A.kind === "sweep" && foldOn()) {
+    const CH = (document.getElementById("foldCh") || { value: "lat" }).value;
+    const SPEC = {
+      lat:  { get: r => r.lat === null ? null : r.lat, sc: 1.6, col: "#e5c07b",
+              lab: "lateral, mm (1.6 px/mm)" },
+      ay:   { get: r => r.ay, sc: 0.03, col: "#e06c75",
+              lab: "ay, mm/s² (0.03 px)" },
+      dfc:  { get: r => r.ay - r.adem, sc: 0.03, col: "#c678dd",
+              lab: "ay − a_dem, mm/s² (0.03 px) — force the tyres did not make" },
+      yerr: { get: r => r.yerr, sc: 4, col: "#61afef", lab: "yaw_err, deg (4 px/deg)" },
+      om:   { get: r => r.om, sc: 0.25, col: "#56b6c2", lab: "omega, deg/s (0.25 px)" },
+    }[CH] || {};
+    const S0 = -250, S1 = 380;                 // covers every radius's window
+    const px = s => (s - S0) / (S1 - S0) * W;
+    // Arc entry, and the arc exit for the active run's radius.
+    g.strokeStyle = "#3a4150"; g.setLineDash([3, 3]);
+    for (const m of [0, A.sweep.R * Math.PI / 2]) {
+      g.beginPath(); g.moveTo(px(m), 0); g.lineTo(px(m), H); g.stroke();
+    }
+    g.setLineDash([]);
+    const drawCorner = (R, k, alpha, width) => {
+      g.strokeStyle = (R === A) ? SPEC.col : R.color;
+      g.globalAlpha = alpha; g.lineWidth = width;
+      g.beginPath();
+      let open = false;
+      for (const rr of R.rec) {
+        if (rr.corner !== k) continue;
+        const v = SPEC.get ? SPEC.get(rr) : null;
+        if (rr.crumb || v === null || !isFinite(v)) { open = false; continue; }
+        const xx = px(rr.sArc), yy = mid - v * SPEC.sc;
+        open ? g.lineTo(xx, yy) : g.moveTo(xx, yy);
+        open = true;
+      }
+      g.stroke(); g.globalAlpha = 1;
+    };
+    // Ghost loops first, faint; then the active loop's four corners.
+    for (const R of runs)
+      if (R.visible && R !== A && R.kind === "sweep")
+        for (const k of new Set(R.rec.filter(z => !z.crumb).map(z => z.corner)))
+          drawCorner(R, k, 0.20, 1);
+    for (const k of new Set(A.rec.filter(z => !z.crumb).map(z => z.corner)))
+        drawCorner(A, k, 0.95, 1.4);
+    // Cursor sits at the CURRENT record's arc-relative distance.
+    g.fillStyle = "#98c379";
+    g.fillRect(px(A.rec[idx].sArc) - 1, 0, 2, H);
+    g.fillStyle = "#8a93a2"; g.font = "11px sans-serif";
+    g.fillText(`FOLDED — x = mm from the arc entry (dashed: entry, and exit `
+      + `at R${A.sweep.R}).  ${SPEC.lab || CH}.  active loop bright, other `
+      + `visible loops faint in their own colours`, 8, 12);
+    return;
+  }
+  if (A.kind === "sweep") {
+    // Different channels, different question. The pair that matters is ay
+    // against a_dem = v*omega: they should lie on top of each other through
+    // an arc, and any gap between them is lateral acceleration the tyres
+    // failed to supply. Both on 0.03 px per mm/s^2 so the comparison is
+    // literal -- a demand of 1280 is 38 px, and the eye reads the DIFFERENCE
+    // rather than two separately-scaled squiggles.
+    const AS = 0.03;
+    // Ghost loops' lateral, faint: the ring is uneven but repeatable, so what
+    // repeats across loops is geometry and what does not is the mouse.
+    for (const R of runs)
+      if (R.visible && R !== A && R.kind === "sweep")
+        plot(R, r => r.lat === null ? 0 : r.lat, 1.0, "#e5c07b", 0.22);
+    plot(A, r => r.adem, AS, "#e06c75", 0.45);
+    if (A.sweep.hasAy) plot(A, r => r.ay, AS, "#e06c75", 1);
+    plot(A, r => r.yerr, 2.5, "#61afef", 1);
+    plot(A, r => r.lat === null ? 0 : r.lat, 1.0, "#e5c07b", 1);
+    g.fillStyle = "#98c379";
+    g.fillRect(idx / n * W - 1, 0, 2, H);
+    g.fillStyle = "#8a93a2"; g.font = "11px sans-serif";
+    g.fillText(A.sweep.hasAy
+      ? "RED ay vs faint red a_dem (both 0.03px per mm/s² — the gap between "
+        + "them is force the tyres did not make)   blue yaw_err (2.5px/deg)"
+        + "   yellow lateral (1px/mm; ghost loops faint)"
+      : "faint red a_dem = v×omega (0.03px per mm/s²) — THIS DUMP HAS NO "
+        + "MEASURED ay, so there is nothing to compare it against   "
+        + "blue yaw_err (2.5px/deg)   yellow lateral (1px/mm)", 8, 12);
+    return;
+  }
+  // ---- THE CHANNEL CHART, scope style (2026-09-25). See the block above
+  // chartBar(). The ABS question is answered by v (wheel) against v_imu /
+  // v_abs on the shared mm/s axis with the abs flag underneath: the wheel
+  // leaves the body, the flag rises, the wheel comes back.
+  const sel = chartSelection(A), cat = channelCatalogue(A).filter(ch => sel.ids.has(ch.id));
+  const traces = cat.filter(ch => ch.unit !== "flag"), flags = cat.filter(ch => ch.unit === "flag");
+  const xv = r => chartX === "t" ? r.t : chartX === "s" ? r.s : null;
+  const xsOf = R => R.rec.map((r, i) => chartX === "i" ? i : xv(r));
+  const xs = xsOf(A);
+  const ci = Math.min(idx, n - 1);
+  // The window: the whole run, or 10 divisions of the chosen timebase
+  // around the cursor.
+  let x0 = Math.min(...xs), x1 = Math.max(...xs); if (x1 <= x0) x1 = x0 + 1;
+  const tb = chartTB[chartX];
+  let xdiv;
+  if (tb === "fit") xdiv = (x1 - x0) / DIV_X;
+  else { xdiv = tb; x0 = xs[ci] - xdiv * DIV_X / 2; x1 = x0 + xdiv * DIV_X; }
+  // Plot area: the grid, with a strip under it for the flags.
+  const FLAG_H = flags.length ? 8 + 7 * flags.length : 0;
+  const PT = 0, PB = H - FLAG_H, PH = PB - PT;
+  const px = x => (x - x0) / (x1 - x0) * W;
+  const visible = i => xs[i] >= x0 && xs[i] <= x1;
+  if (window.chartWindow) chartWindow({ x0, x1, xdiv, xs });
+  // One axis per unit: a step per division and the value at the bottom
+  // line. Auto = the smallest 1-2-5 step that puts the VISIBLE data inside
+  // eight divisions with the zero line on a division.
+  const axes = {};
+  for (const ch of traces) {
+    if (axes[ch.unit]) continue;
+    let lo = Infinity, hi = -Infinity;
+    for (const c2 of traces) if (c2.unit === ch.unit)
+      for (let i = 0; i < n; i++) if (visible(i)) { const v = c2.get(A.rec[i]); if (v < lo) lo = v; if (v > hi) hi = v; }
+    if (!isFinite(lo)) { lo = 0; hi = 1; }
+    if (hi <= lo) hi = lo + 1;
+    const fixed = chartStep[ch.unit] && chartStep[ch.unit] !== "auto" ? chartStep[ch.unit] : null;
+    let step = fixed || niceStep((hi - lo) / DIV_Y), base;
+    const place = st => chartZero === "centre" ? -st * DIV_Y / 2 : chartZero === "bottom" ? 0 : Math.floor(lo / st) * st;
+    if (fixed) base = place(step);
+    else {
+      // grow the step until eight divisions from the placed base cover hi
+      base = place(step);
+      let k = STEPS_125.indexOf(step);
+      while (hi > base + step * DIV_Y && k < STEPS_125.length - 1) { step = STEPS_125[++k]; base = place(step); }
+    }
+    axes[ch.unit] = { step, base, fixed: !!fixed };
+  }
+  const yOf = (u, v) => PB - (v - axes[u].base) / (axes[u].step * DIV_Y) * PH;
+  // ---- the graticule --------------------------------------------------
+  g.save();
+  g.strokeStyle = "#262c36"; g.lineWidth = 1;
+  for (let k = 0; k <= DIV_X; k++) { const x = Math.round(k / DIV_X * W) + 0.5; g.beginPath(); g.moveTo(x, PT); g.lineTo(x, PB); g.stroke(); }
+  for (let k = 0; k <= DIV_Y; k++) { const y = Math.round(PT + k / DIV_Y * PH) + 0.5; g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
+  // centre lines with minor ticks, five per division, the scope way
+  g.strokeStyle = "#3a4150";
+  const cx = Math.round(W / 2) + 0.5, cy = Math.round(PT + PH / 2) + 0.5;
+  g.beginPath(); g.moveTo(cx, PT); g.lineTo(cx, PB); g.moveTo(0, cy); g.lineTo(W, cy); g.stroke();
+  g.beginPath();
+  for (let k = 0; k <= DIV_X * 5; k++) { const x = Math.round(k / (DIV_X * 5) * W) + 0.5; g.moveTo(x, cy - 3); g.lineTo(x, cy + 3); }
+  for (let k = 0; k <= DIV_Y * 5; k++) { const y = Math.round(PT + k / (DIV_Y * 5) * PH) + 0.5; g.moveTo(cx - 3, y); g.lineTo(cx + 3, y); }
+  g.stroke();
+  // zero line per unit, dashed in the unit's first trace colour
+  g.setLineDash([4, 4]);
+  Object.keys(axes).forEach(u => {
+    const y = Math.round(yOf(u, 0)) + 0.5; if (y < PT || y > PB) return;
+    const k = traces.findIndex(ch => ch.unit === u);
+    g.strokeStyle = CHART_COLORS[k % CHART_COLORS.length]; g.globalAlpha = 0.45;
+    g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke();
+  });
+  g.setLineDash([]); g.globalAlpha = 1;
+  g.restore();
+  // ---- the traces -------------------------------------------------------
+  g.save(); g.beginPath(); g.rect(0, PT, W, PH); g.clip();
+  const drawTrace = (R, ch, xs2, alpha, width) => {
+    g.strokeStyle = ch.col; g.globalAlpha = alpha; g.lineWidth = width; g.beginPath();
+    let pen = false;
+    for (let i = 0; i < R.rec.length; i++) {
+      if (xs2[i] < x0 - xdiv || xs2[i] > x1 + xdiv) { pen = false; continue; }
+      const X2 = px(xs2[i]), Y2 = yOf(ch.unit, ch.get(R.rec[i]));
+      pen ? g.lineTo(X2, Y2) : g.moveTo(X2, Y2); pen = true;
+    }
+    g.stroke(); g.globalAlpha = 1;
+  };
+  traces.forEach((ch, k) => { ch.col = CHART_COLORS[k % CHART_COLORS.length]; });
+  // Ghost runs of the same kind, faint, on the ACTIVE run's axes so a
+  // systematic difference shows as a displaced trace.
+  for (const R of runs)
+    if (R.visible && R !== A && R.kind !== "sweep" && R.logkind === A.logkind) {
+      const cat2 = channelCatalogue(R), xs2 = xsOf(R);
+      for (const ch of traces) {
+        const c2 = cat2.find(z => z.id === ch.id); if (!c2) continue;
+        drawTrace(R, { ...c2, col: ch.col, unit: ch.unit }, xs2, 0.22, 1);
+      }
+    }
+  for (const ch of traces) drawTrace(A, ch, xs, 1, 1.2);
+  g.restore();
+  // ---- the flags, a band each along the bottom strip --------------------
+  flags.forEach((ch, k) => {
+    const col = CHART_COLORS[(traces.length + k) % CHART_COLORS.length];
+    g.fillStyle = col; g.globalAlpha = 0.35;
+    const y = PB + 4 + 7 * k;
+    for (let i = 1; i < n; i++) if (ch.get(A.rec[i]) && visible(i))
+      g.fillRect(px(xs[i - 1]), y, Math.max(1, px(xs[i]) - px(xs[i - 1])), 5);
+    g.globalAlpha = 1;
+    g.font = "10px ui-monospace, monospace"; g.fillStyle = col;
+    g.fillText(ch.name, 4, y + 5);
+  });
+  // ---- the cursor and the value tags -----------------------------------
+  const cxp = px(xs[ci]);
+  g.fillStyle = "#98c379";
+  g.fillRect(cxp - 1, 0, 2, H);
+  g.font = "11px ui-monospace, monospace";
+  const tags = traces.map(ch => {
+    const v = ch.get(A.rec[ci]);
+    return { ch, v, y: yOf(ch.unit, v), txt: `${ch.name} ${fmtV(v)} ${ch.unit === "raw" ? "" : ch.unit}`.trim() };
+  }).sort((a, b) => a.y - b.y);
+  // stack the tags so none overlaps: sweep down, then push up from the bottom
+  const TH = 14;
+  for (let k = 0; k < tags.length; k++) {
+    tags[k].ty = Math.max(PT + TH / 2, Math.min(PB - TH / 2, tags[k].y));
+    if (k && tags[k].ty - tags[k - 1].ty < TH) tags[k].ty = tags[k - 1].ty + TH;
+  }
+  for (let k = tags.length - 1; k > 0; k--)
+    if (tags[k].ty > PB - TH / 2) { tags[k].ty = PB - TH / 2; }
+  for (let k = tags.length - 2; k >= 0; k--)
+    if (tags[k + 1].ty - tags[k].ty < TH) tags[k].ty = tags[k + 1].ty - TH;
+  for (const t of tags) {
+    const tw = g.measureText(t.txt).width + 8;
+    const left = cxp + 8 + tw > W ? cxp - 8 - tw : cxp + 8;
+    g.fillStyle = "rgba(20,22,26,0.88)"; g.fillRect(left, t.ty - TH / 2, tw, TH);
+    g.strokeStyle = t.ch.col; g.lineWidth = 1; g.strokeRect(left + 0.5, t.ty - TH / 2 + 0.5, tw - 1, TH - 1);
+    g.fillStyle = t.ch.col; g.fillText(t.txt, left + 4, t.ty + 4);
+    // a leader from the tag to the trace point
+    if (Math.abs(t.ty - t.y) > 2) { g.beginPath(); g.moveTo(cxp, t.y); g.lineTo(left < cxp ? left + tw : left, t.ty); g.stroke(); }
+  }
+  // ---- the legend: the timebase and one line per axis -------------------
+  const lines = [`${fmtStep(xdiv)} ${X_UNIT[chartX]}/div` + (tb === "fit" ? " (fit)" : "") +
+                 `   cursor ${chartX === "i" ? "rec " + ci : fmtV(xs[ci]) + " " + X_UNIT[chartX]}`];
+  Object.keys(axes).forEach(u => {
+    const a = axes[u];
+    const names = traces.filter(ch => ch.unit === u).map(ch => ch.name).join(", ");
+    lines.push(`${u}  ${fmtStep(a.step)}/div${a.fixed ? "" : " auto"}  bottom ${fmtV(a.base)}  [${names}]`);
+  });
+  let lw = 0; for (const t of lines) lw = Math.max(lw, g.measureText(t).width);
+  g.fillStyle = "rgba(20,22,26,0.82)"; g.fillRect(4, 4, lw + 8, 13 * lines.length + 4);
+  lines.forEach((t, k) => {
+    if (k === 0) g.fillStyle = "#8a93a2";
+    else { const u = Object.keys(axes)[k - 1]; const kk = traces.findIndex(ch => ch.unit === u); g.fillStyle = CHART_COLORS[kk % CHART_COLORS.length]; }
+    g.fillText(t, 8, 15 + 13 * k);
+  });
+  if (!cat.length) { g.fillStyle = "#8a93a2"; g.font = "11px sans-serif";
+    g.fillText("no channels selected -- tick some above", 8, 15 + 13 * lines.length); }
+}
+
+// ---- scope interaction: wheel = timebase, click = cursor ----------------
+(() => {
+  const cvc = document.getElementById("chart");
+  let lastX = null;   // the window the last draw used, for click-to-cursor
+  window.chartWindow = w => { lastX = w; };
+  cvc.addEventListener("wheel", e => {
+    if (!runs.length || runs[cur].kind === "sweep") return;
+    e.preventDefault();
+    const steps = TB_STEPS[chartX], cur_tb = chartTB[chartX];
+    let k;
+    if (cur_tb === "fit") {
+      // leave fit at the step nearest the fitted division, then zoom in
+      const xd = lastX ? lastX.xdiv : steps[steps.length - 1];
+      k = steps.findIndex(v => v >= xd); if (k < 0) k = steps.length - 1;
+      if (e.deltaY < 0) k = Math.max(0, k - 1);
+    } else {
+      k = steps.indexOf(cur_tb);
+      k += e.deltaY < 0 ? -1 : 1;
+      if (k >= steps.length) { chartTB[chartX] = "fit"; scopeSave(); chartBar(); draw(); return; }
+      k = Math.max(0, k);
+    }
+    chartTB[chartX] = steps[k]; scopeSave(); chartBar(); draw();
+  }, { passive: false });
+  cvc.addEventListener("mousedown", e => {
+    if (!runs.length || runs[cur].kind === "sweep" || !lastX) return;
+    const r = cvc.getBoundingClientRect();
+    const xw = lastX.x0 + (e.clientX - r.left) * cvc.width / r.width / cvc.width * (lastX.x1 - lastX.x0);
+    // nearest record in x
+    const xs = lastX.xs; let best = 0, bd = Infinity;
+    for (let i = 0; i < xs.length; i++) { const d = Math.abs(xs[i] - xw); if (d < bd) { bd = d; best = i; } }
+    idx = best; document.getElementById("seek").value = idx; draw();
+  });
+})();
+
+// ---- maze / chart layout (2026-09-25: "put the maze and the graph on
+// the same row, maze first"). One row below the bars, filling the window:
+// the maze canvas on the left at a remembered width, the channel chips and
+// the chart filling the rest. The bar between them drags the split. Canvas
+// pixel sizes follow the layout so nothing is CSS-scaled.
+(() => {
+  const MIN = 160;
+  const cvm = document.getElementById("cv"), cvc = document.getElementById("chart"),
+        sp = document.getElementById("splitter"), row = document.getElementById("row"),
+        bar = document.getElementById("chartbar");
+  let mazeW = 480;
+  try { const v = +localStorage.getItem("tw3fv.splitx"); if (v) mazeW = v; } catch (e) {}
+  const layout = () => {
+    const total = row.clientWidth || window.innerWidth;
+    mazeW = Math.max(MIN, Math.min(total - MIN - 6, Math.round(mazeW)));
+    const rowH = Math.max(320, window.innerHeight - row.getBoundingClientRect().top - 4);
+    row.style.height = rowH + "px";
+    cvm.width = mazeW; cvm.height = rowH;
+    // The chart takes what is left under the chip bar. Read the bar's height
+    // after it has wrapped at the new width.
+    const chartW = total - mazeW - 6;
+    cvc.width = Math.max(100, chartW);
+    cvc.height = Math.max(100, rowH - bar.offsetHeight);
+    try { localStorage.setItem("tw3fv.splitx", String(mazeW)); } catch (e) {}
+  };
+  window.layoutRow = layout;
+  let drag = null;
+  sp.addEventListener("mousedown", e => { drag = { x: e.clientX, w: mazeW }; e.preventDefault(); });
+  window.addEventListener("mousemove", e => {
+    if (!drag) return;
+    mazeW = drag.w + (e.clientX - drag.x);
+    layout(); draw();
+  });
+  window.addEventListener("mouseup", () => { drag = null; });
+  sp.addEventListener("dblclick", () => { mazeW = 480; layout(); draw(); });
+  window.addEventListener("resize", () => { layout(); if (runs.length) draw(); });
+  layout();
+})();
+
+// ---- map pan / zoom ----
+(() => {
+  const cv = document.getElementById("cv");
+  const rel = e => { const r = cv.getBoundingClientRect();
+    return [ (e.clientX - r.left) * cv.width / r.width,
+             (e.clientY - r.top)  * cv.height / r.height ]; };
+  cv.addEventListener("wheel", e => {
+    e.preventDefault();
+    const [mx, my] = rel(e);
+    const f = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+    const nz = Math.min(40, Math.max(0.2, view.zoom * f));
+    const ff = nz / view.zoom;                 // pivot the zoom about the cursor
+    view.panX = mx - (mx - view.panX) * ff;
+    view.panY = my - cv.height + (cv.height + view.panY - my) * ff;
+    view.zoom = nz;
+    draw();
+  }, { passive: false });
+  let drag = null;
+  cv.addEventListener("mousedown", e => { const [mx, my] = rel(e);
+    drag = { mx, my, px: view.panX, py: view.panY }; cv.style.cursor = "grabbing"; });
+  window.addEventListener("mousemove", e => { if (!drag) return;
+    const [mx, my] = rel(e);
+    view.panX = drag.px + (mx - drag.mx);
+    view.panY = drag.py + (my - drag.my); draw(); });
+  window.addEventListener("mouseup", () => { drag = null; cv.style.cursor = "grab"; });
+  cv.addEventListener("dblclick", () => { resetView(); draw(); });
+  cv.style.cursor = "grab";
+})();
+
+// ---- HAND-OFF FROM THE TUNE GUI (2026-09-25): tune_gui's "View" button
+// puts the just-fetched log text in localStorage (file:// pages share one
+// origin in Chrome) and opens this page with ?handoff. Loaded once, then
+// cleared, so a stale log never reappears.
+(() => {
+  if (!/[?&]handoff/.test(location.search)) return;
+  let text = null, name = "handoff";
+  try { text = localStorage.getItem("tw3.flog.handoff"); name = localStorage.getItem("tw3.flog.handoff.name") || name;
+        localStorage.removeItem("tw3.flog.handoff"); } catch (e) {}
+  if (!text) return;
+  const R = parseRun(name.replace(/\.[^.]+$/, ""), text);
+  if (R) { runs.push(R); cur = runs.length - 1; idx = 0;
+    document.getElementById("seek").max = R.rec.length - 1; }
+  resetView(); runList(); draw();
+})();
+
+// ---- controls ----
+document.getElementById("file").addEventListener("change", async e => {
+  for (const f of e.target.files) {
+    const nm = f.name.replace(/\.[^.]+$/, ""), text = await f.text();
+    // One sweep dump becomes one run PER LOOP: the ring closes, so every loop
+    // starts from the same physical place and they overlay directly. That is
+    // the comparison the rig exists for.
+    if (isSweepDump(text)) {
+      const set = parseSweep(nm, text);
+      if (set) {
+        if (set.hiddenNote) hiddenNote = set.hiddenNote;
+        for (const R of set) runs.push(R);
+      }
+      continue;
+    }
+    const R = parseRun(nm, text);
+    if (R) runs.push(R);
+  }
+  if (runs.length) { cur = runs.length - 1; idx = 0;
+    document.getElementById("seek").max = runs[cur].rec.length - 1;
+    document.getElementById("seek").value = 0; }
+  resetView(); runList(); draw();   // fit the freshly loaded run
+  e.target.value = "";
+});
+document.getElementById("clear").onclick = () => {
+  runs = []; cur = 0; idx = 0; hiddenNote = "";
+  resetView(); runList(); draw(); sweepTable();
+};
+// Both of these rebuild flight runs from their source text. SWEEP RUNS ARE
+// SKIPPED: neither control applies to them (a sweep dump has no front beams,
+// and its start pose comes from the ring geometry, not the toolbar), and a
+// rebuild would have to re-split the whole dump into loops anyway.
+document.getElementById("ckFrontC").addEventListener("change", () => {
+  runs = runs.map(R => R.kind === "sweep" ? R
+    : Object.assign(parseRun(R.name, R.text, R.launchOverride) || R,
+                    { visible: R.visible, color: R.color }));
+  runList(); draw();
+});
+
+document.getElementById("startY").addEventListener("change", () => {
+  runs = runs.map(R => {
+    if (R.kind === "sweep") return R;
+    const N = parseRun(R.name, R.text, R.launchOverride);
+    if (!N) return R;
+    N.visible = R.visible; N.color = R.color;   // keep the legend stable
+    return N;
+  });
+  if (runs.length) idx = Math.min(idx, runs[cur].rec.length - 1);
+  runList(); draw();
+});
+// Every other toolbar checkbox only changes what is DRAWN, so it just needs a
+// redraw. They had no handler at all before, which meant ticking one did
+// nothing visible until you happened to nudge the seek bar.
+for (const cb of document.querySelectorAll('#bar input[type=checkbox]'))
+  if (cb.id !== "ckFrontC") cb.addEventListener("change", draw);
+// Folding changes the geometry the fit is computed over, so the view has to
+// be re-fitted rather than left pointing at where the ring used to be.
+document.getElementById("ckFold").addEventListener("change", () => {
+  resetView(); draw();
+});
+document.getElementById("foldCh").addEventListener("change", draw);
+document.getElementById("fit").onclick = () => { resetView(); draw(); };
+document.getElementById("seek").addEventListener("input", e => {
+  idx = +e.target.value; draw();
+});
+document.getElementById("play").addEventListener("click", () => {
+  playing = !playing;
+  document.getElementById("play").textContent = playing ? "Pause" : "Play";
+  lastT = 0;
+  if (playing) requestAnimationFrame(tick);
+});
+document.getElementById("stepf").onclick = () => {
+  idx = Math.min(runs[cur].rec.length - 1, idx + 1); sync(); };
+document.getElementById("stepb").onclick = () => {
+  idx = Math.max(0, idx - 1); sync(); };
+function sync() { document.getElementById("seek").value = idx; draw(); }
+let lastT = 0;
+function tick(ts) {
+  if (!playing || !runs.length) return;
+  const A = runs[cur];
+  const spd = +document.getElementById("spd").value;
+  if (!lastT) lastT = ts;
+  const adv = (ts - lastT) * spd; lastT = ts;
+  const t_target = A.rec[idx].t + adv;
+  while (idx < A.rec.length - 1 && A.rec[idx + 1].t <= t_target) idx++;
+  sync();
+  if (idx >= A.rec.length - 1) { playing = false;
+    document.getElementById("play").textContent = "Play"; return; }
+  requestAnimationFrame(tick);
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,24 @@
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# Editors / IDEs
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Host test binaries
+firmware/main_mcu/test/test_*
+!firmware/main_mcu/test/test_*.cpp
+
+# Scratch / staging
+_to_delete/
+*.tmp
+
+# Video footage (too large for GitHub; keep locally)
+*.mp4
